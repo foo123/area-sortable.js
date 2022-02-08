@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" class="no-ie">
+<head>
+<title>AreaSortable Demo</title>
+
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<meta name="description" content="AreaSortable Demo">
+
+<style type="text/css">
+#forkongithub a{background:#aa0000;color:#fff;text-decoration:none;font-family:arial, sans-serif;text-align:center;font-weight:bold;padding:5px 40px;font-size:0.9rem;line-height:1.4rem;position:relative;transition:0.5s;}#forkongithub a:hover{background:#aa0000;color:#fff;}#forkongithub a::before,#forkongithub a::after{content:"";width:100%;display:block;position:absolute;z-index:100;top:1px;left:0;height:1px;background:#fff;}#forkongithub a::after{bottom:1px;top:auto;}@media screen and (min-width:800px){#forkongithub{position:absolute;display:block;z-index:100;top:0;right:0;width:200px;overflow:hidden;height:200px;}#forkongithub a{width:200px;position:absolute;top:60px;right:-60px;transform:rotate(45deg);-webkit-transform:rotate(45deg);box-shadow:4px 4px 10px rgba(0,0,0,0.8);}}
+
+body {
+    font-size: 16px;
+    font-family: Helvetica, Arial, sans-serif;
+}
+h1 {
+    width: 100%;
+    text-align: center;
+    margin: 40px auto 20px auto;
+}
+
+
+/* demo styles */
+.container {
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    margin: 40px auto;
+    padding: 20px;
+    list-style-type: none;
+    border: 1px solid #999;
+    width: 900px;
+    max-width: 100%;
+    font-size: 0;
+    text-align: left;
+}
+.container.dnd-sortable-area {
+    border-color: #fa0020;
+}
+.container > .dnd-sortable-item {
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    text-align: center;
+    font-size: 40px;
+    line-height: 60px;
+    border: 1px solid #666;
+    color: #343434;
+    vertical-align: top;
+    padding: 8px;
+    margin: 4px;
+    background: #fff;
+}
+#c1.container > .dnd-sortable-item {
+    cursor: ns-resize;
+}
+#c2.container > .dnd-sortable-item {
+    display: inline-block;
+    width: 12%;
+    cursor: ew-resize;
+}
+#c3.container > .dnd-sortable-item {
+    display: inline-block;
+    width: 30%;
+    cursor: move;
+}
+.dnd-sortable-item.dnd-sortable-closest {
+    border-color: #00fa00;
+    z-index: 5;
+}
+.dnd-sortable-item.dnd-sortable-dragged {
+    border-color: #fa0020;
+    color: #fa0020;
+    z-index: 10;
+    opacity: 0.7;
+}
+</style>
+
+</head>
+<body>
+<span id="forkongithub"><a href="https://github.com/foo123/area-sortable.js">Fork me on GitHub</a></span>
+
+<h1>AreaSortable Demo v.<span id="ver"></span></h1>
+
+<ul id="c1" class="container">
+<li class="dnd-sortable-item dnd-sortable-handle">A</li>
+<li class="dnd-sortable-item dnd-sortable-handle">B</li>
+<li class="dnd-sortable-item dnd-sortable-handle">C</li>
+<li class="dnd-sortable-item dnd-sortable-handle">D</li>
+<li class="dnd-sortable-item dnd-sortable-handle">E</li>
+<li class="dnd-sortable-item dnd-sortable-handle">F</li>
+</ul>
+
+<ul id="c2" class="container">
+<li class="dnd-sortable-item dnd-sortable-handle">A</li>
+<li class="dnd-sortable-item dnd-sortable-handle">B</li>
+<li class="dnd-sortable-item dnd-sortable-handle">C</li>
+<li class="dnd-sortable-item dnd-sortable-handle">D</li>
+<li class="dnd-sortable-item dnd-sortable-handle">E</li>
+<li class="dnd-sortable-item dnd-sortable-handle">F</li>
+</ul>
+
+<ul id="c3" class="container">
+<li class="dnd-sortable-item dnd-sortable-handle">A</li>
+<li class="dnd-sortable-item dnd-sortable-handle">B</li>
+<li class="dnd-sortable-item dnd-sortable-handle">C</li>
+<li class="dnd-sortable-item dnd-sortable-handle">D</li>
+<li class="dnd-sortable-item dnd-sortable-handle">E</li>
+<li class="dnd-sortable-item dnd-sortable-handle">F</li>
+</ul>
+
+<script src="../src/areasortable.js"></script>
+<script>
+document.getElementById('ver').textContent = AreaSortable.VERSION;
+
+let instance1 = AreaSortable('vertical', {
+    // all options
+    container: 'c1' // container id
+    ,activeArea: 'dnd-sortable-area' // default
+    ,handle: 'dnd-sortable-handle' // default
+    ,item: 'dnd-sortable-item' // default
+    ,activeItem: 'dnd-sortable-dragged' // default
+    ,closestItem: 'dnd-sortable-closest' // default
+    ,onStart: (item) => {}
+    ,onEnd: (item) => {}
+});
+let instance2 = AreaSortable('horizontal', {
+    container: 'c2' // container id
+});
+let instance3 = AreaSortable('unrestricted', {
+    container: 'c3' // container id
+});
+/*
+// dispose
+instance1.dispose();
+instance2.dispose();
+instance3.dispose();
+*/
+</script>
+</body>
+</html>
