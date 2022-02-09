@@ -66,6 +66,20 @@ h1 {
     width: 30%;
     cursor: move;
 }
+#c1.container > .dnd-sortable-item.tall {
+    font-size: 46px;
+    line-height: 90px;
+}
+#c2.container > .dnd-sortable-item.wide {
+    width: 16%;
+}
+#c3.container > .dnd-sortable-item.tall {
+    font-size: 46px;
+    line-height: 90px;
+}
+#c3.container > .dnd-sortable-item.wide {
+    width: 42%;
+}
 .dnd-sortable-item.dnd-sortable-closest {
     border-color: #00fa00;
     z-index: 5;
@@ -88,7 +102,7 @@ h1 {
 <li class="dnd-sortable-item dnd-sortable-handle">A</li>
 <li class="dnd-sortable-item dnd-sortable-handle">B</li>
 <li class="dnd-sortable-item dnd-sortable-handle">C</li>
-<li class="dnd-sortable-item dnd-sortable-handle">D</li>
+<li class="dnd-sortable-item dnd-sortable-handle tall">D</li>
 <li class="dnd-sortable-item dnd-sortable-handle">E</li>
 <li class="dnd-sortable-item dnd-sortable-handle">F</li>
 </ul>
@@ -97,7 +111,7 @@ h1 {
 <li class="dnd-sortable-item dnd-sortable-handle">A</li>
 <li class="dnd-sortable-item dnd-sortable-handle">B</li>
 <li class="dnd-sortable-item dnd-sortable-handle">C</li>
-<li class="dnd-sortable-item dnd-sortable-handle">D</li>
+<li class="dnd-sortable-item dnd-sortable-handle wide">D</li>
 <li class="dnd-sortable-item dnd-sortable-handle">E</li>
 <li class="dnd-sortable-item dnd-sortable-handle">F</li>
 </ul>
@@ -115,6 +129,19 @@ h1 {
 <script>
 document.getElementById('ver').textContent = AreaSortable.VERSION;
 
+function disableScroll()
+{
+    // Get the current page scroll position
+    scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    scrollLeft = window.pageXOffset || document.documentElement.scrollLeft,
+    // if any scroll is attempted, set this to the previous value
+    window.onscroll = function() {window.scrollTo(scrollLeft, scrollTop);};
+}
+function enableScroll()
+{
+    window.onscroll = function() {};
+}
+
 let instance1 = AreaSortable('vertical', {
     // all options
     container: 'c1' // container id
@@ -123,14 +150,18 @@ let instance1 = AreaSortable('vertical', {
     ,item: 'dnd-sortable-item' // default
     ,activeItem: 'dnd-sortable-dragged' // default
     ,closestItem: 'dnd-sortable-closest' // default
-    ,onStart: (item) => {}
-    ,onEnd: (item) => {}
+    ,onStart: disableScroll
+    ,onEnd: enableScroll
 });
 let instance2 = AreaSortable('horizontal', {
     container: 'c2' // container id
+    ,onStart: disableScroll
+    ,onEnd: enableScroll
 });
 let instance3 = AreaSortable('unrestricted', {
     container: 'c3' // container id
+    ,onStart: disableScroll
+    ,onEnd: enableScroll
 });
 /*
 // dispose

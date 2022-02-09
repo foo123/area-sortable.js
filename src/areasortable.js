@@ -23,17 +23,43 @@ else if ( !(name in root) ) /* Browser/WebWorker/.. */
 "use strict";
 
 var VERSION = '1.0.0',
+    $ = '$dndSortable',
     VERTICAL = 1, HORIZONTAL = 2,
     UNRESTRICTED = VERTICAL+HORIZONTAL,
-    stdMath = Math
+    stdMath = Math, Str = String,
+    hasProp = Object.prototype.hasOwnProperty,
+    trim_re = /^\s+|\s+$/g,
+    trim = Str.prototype.trim
+        ? function(s) {return s.trim();}
+        : function(s) {return s.replace(trim_re,'');}
 ;
 
 if (
     window.Element
-    && !Object.prototype.hasOwnProperty.call(window.Element.prototype, '$dndSortableRect')
+    && !hasProp.call(window.Element.prototype, $)
 )
-    window.Element.prototype.$dndSortableRect = null;
+    window.Element.prototype[$] = null;
 
+function hasClass(el, className)
+{
+    return el.classList
+        ? el.classList.contains(className)
+        : -1 !== (' ' + el.className + ' ').indexOf(' ' + className + ' ')
+    ;
+}
+function addClass(el, className)
+{
+    /*if (!hasClass(el, className))
+    {*/
+        if (el.classList) el.classList.add(className);
+        else el.className = trim('' === el.className ? className : el.className + ' ' + className);
+    /*}*/
+}
+function removeClass(el, className)
+{
+    if (el.classList) el.classList.remove(className);
+    else el.className = trim((' ' + el.className + ' ').replace(' ' + className + ' ', ' '));
+}
 function throttle(f, limit)
 {
     var inThrottle = false;
@@ -48,197 +74,205 @@ function throttle(f, limit)
     };
 }
 
+function intersect1D(nodeA, nodeB, coord, size)
+{
+    var rectA = nodeA.getBoundingClientRect(),
+        rectB = nodeB.getBoundingClientRect();
+    return stdMath.max(
+        0.0,
+        stdMath.min(
+            1.0,
+            stdMath.max(
+                0,
+                stdMath.min(
+                    rectA[coord] + rectA[size],
+                    rectB[coord] + rectB[size]
+                )
+                -
+                stdMath.max(
+                    rectA[coord],
+                    rectB[coord]
+                )
+            )
+            /
+            stdMath.min(
+                rectA[size],
+                rectB[size]
+            )
+        )
+    );
+}
+
+function intersect2D(nodeA, nodeB, coord, size)
+{
+    var rectA = nodeA.getBoundingClientRect(),
+        rectB = nodeB.getBoundingClientRect(),
+        overlapX = 0, overlapY = 0;
+    overlapX = stdMath.max(
+        0,
+        stdMath.min(
+            rectA.left + rectA.width,
+            rectB.left + rectB.width
+        )
+        -
+        stdMath.max(
+            rectA.left,
+            rectB.left
+        )
+    );
+    overlapY = stdMath.max(
+        0,
+        stdMath.min(
+            rectA.top + rectA.height,
+            rectB.top + rectB.height
+        )
+        -
+        stdMath.max(
+            rectA.top,
+            rectB.top
+        )
+    );
+    return stdMath.max(
+        0.0,
+        stdMath.min(
+            1.0,
+            (overlapX * overlapY)
+            /
+            (
+                stdMath.min(
+                    rectA.width,
+                    rectB.width
+                )
+                *
+                stdMath.min(
+                    rectA.height,
+                    rectB.height
+                )
+            )
+        )
+    );
+}
+
 function setup(self, TYPE)
 {
-    var closestEle, draggingEle, handlerEle, parent, items, parentRect,
-        X0, Y0, lastX, lastY, isDraggingStarted = false, attached = false,
-        dir, moved, move, intersect,
+    var closestEle, draggingEle, handlerEle,
+        parent, items, parentRect, parentStyle,
+        X0, Y0, lastX, lastY, dir, moved, move, intersect,
+        isDraggingStarted = false, attached = false,
         size = HORIZONTAL === TYPE ? 'width' : 'height',
-        coord = HORIZONTAL === TYPE ? 'left' : 'top';
-
-    var intersect1D = function(nodeA, nodeB) {
-        var rectA = nodeA.getBoundingClientRect(),
-            rectB = nodeB.getBoundingClientRect();
-        return stdMath.max(
-            0.0,
-            stdMath.min(
-                1.0,
-                stdMath.max(
-                    0,
-                    stdMath.min(
-                        rectA[coord] + rectA[size],
-                        rectB[coord] + rectB[size]
-                    )
-                    -
-                    stdMath.max(
-                        rectA[coord],
-                        rectB[coord]
-                    )
-                )
-                /
-                stdMath.min(
-                    rectA[size],
-                    rectB[size]
-                )
-            )
-        );
-    };
-
-    var intersect2D = function(nodeA, nodeB) {
-        var rectA = nodeA.getBoundingClientRect(),
-            rectB = nodeB.getBoundingClientRect(),
-            overlapX = 0, overlapY = 0;
-        overlapX = stdMath.max(
-            0,
-            stdMath.min(
-                rectA.left + rectA.width,
-                rectB.left + rectB.width
-            )
-            -
-            stdMath.max(
-                rectA.left,
-                rectB.left
-            )
-        );
-        overlapY = stdMath.max(
-            0,
-            stdMath.min(
-                rectA.top + rectA.height,
-                rectB.top + rectB.height
-            )
-            -
-            stdMath.max(
-                rectA.top,
-                rectB.top
-            )
-        );
-        return stdMath.max(
-            0.0,
-            stdMath.min(
-                1.0,
-                (overlapX * overlapY)
-                /
-                (
-                    stdMath.min(
-                        rectA.width,
-                        rectB.width
-                    )
-                    *
-                    stdMath.min(
-                        rectA.height,
-                        rectB.height
-                    )
-                )
-            )
-        );
-    };
+        coord = HORIZONTAL === TYPE ? 'left' : 'top'
+    ;
 
     var move1D = function(movedNode, refNode, dir) {
-        var next, delta, pos, limitNode;
+        var next, delta = 0, pos, limitNode;
         if (0 > dir)
         {
             limitNode = movedNode.nextElementSibling;
-            pos = movedNode.$dndSortableRect[coord];
+            pos = movedNode[$].rect[coord];
             // Move `movedNode` before the `refNode`
             parent.insertBefore(movedNode, refNode);
-            movedNode.$dndSortableRect[coord] = refNode.$dndSortableRect[coord];
-            delta = movedNode.$dndSortableRect[size]-refNode.$dndSortableRect[size];
+            movedNode[$].index = refNode[$].index;
+            movedNode[$].rect[coord] = refNode[$].rect[coord];
+            delta = movedNode[$].rect[size]-refNode[$].rect[size];
             while ((next = refNode.nextElementSibling) && (next !== limitNode))
             {
-                refNode.$dndSortableRect[coord] = next.$dndSortableRect[coord]+delta;
-                refNode.style[coord] = String(refNode.$dndSortableRect[coord]-parentRect[coord])+'px';
-                delta = refNode.$dndSortableRect[size]-next.$dndSortableRect[size];
+                refNode[$].index++;
+                refNode[$].rect[coord] = next[$].rect[coord]+delta;
+                refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
+                delta = refNode[$].rect[size]-next[$].rect[size];
                 refNode = next;
             }
-            refNode.$dndSortableRect[coord] = pos+delta;
-            refNode.style[coord] = String(refNode.$dndSortableRect[coord]-parentRect[coord])+'px';
+            refNode[$].index++;
+            refNode[$].rect[coord] = pos+delta;
+            refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
         }
         else if (0 < dir)
         {
             limitNode = movedNode.previousElementSibling;
-            pos = movedNode.$dndSortableRect[coord];
             // Move `movedNode` after the `refNode`
             if (refNode.nextElementSibling)
                 parent.insertBefore(movedNode, refNode.nextElementSibling);
             else
                 parent.appendChild(movedNode);
-            movedNode.$dndSortableRect[coord] = refNode.$dndSortableRect[coord];
-            delta = movedNode.$dndSortableRect[size]-refNode.$dndSortableRect[size];
-            while ((next = refNode.previousElementSibling) && (next !== limitNode))
+            movedNode[$].index = refNode[$].index;
+            refNode = limitNode ? limitNode.nextElementSibling : refNode;
+            next = movedNode;
+            delta = 0;
+            do
             {
-                refNode.$dndSortableRect[coord] = next.$dndSortableRect[coord]-delta;
-                refNode.style[coord] = String(refNode.$dndSortableRect[coord]-parentRect[coord])+'px';
-                delta = refNode.$dndSortableRect[size]-next.$dndSortableRect[size];
-                refNode = next;
+                refNode[$].index--;
+                pos = refNode[$].rect[coord];
+                refNode[$].rect[coord] = next[$].rect[coord]+delta;
+                refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
+                delta = refNode[$].rect[size]-next[$].rect[size];
+                next = refNode;
+                refNode = refNode.nextElementSibling;
             }
-            refNode.$dndSortableRect[coord] = pos-delta;
-            refNode.style[coord] = String(refNode.$dndSortableRect[coord]-parentRect[coord])+'px';
+            while ((refNode) && (refNode !== movedNode));
+            refNode[$].rect[coord] = pos+delta;
+            refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
         }
     };
 
     var move2D = function(movedNode, refNode, dir) {
-        var next, deltaX, deltaY, posX, posY, limitNode,
-            movedIndex = items.indexOf(movedNode), refIndex;
+        var next, posX, posY, limitNode;
         if (0 > dir)
         {
             limitNode = movedNode.nextElementSibling;
-            posY = movedNode.$dndSortableRect.top;
-            posX = movedNode.$dndSortableRect.left;
+            posY = movedNode[$].rect.top;
+            posX = movedNode[$].rect.left;
             // Move `movedNode` before the `refNode`
             parent.insertBefore(movedNode, refNode);
-            items.splice(movedIndex, 1);
-            refIndex = items.indexOf(refNode);
-            items.splice(refIndex, 0, movedNode);
-            movedNode.$dndSortableRect.top = refNode.$dndSortableRect.top;
-            movedNode.$dndSortableRect.left = refNode.$dndSortableRect.left;
-            deltaY = movedNode.$dndSortableRect.height-refNode.$dndSortableRect.height;
-            deltaX = movedNode.$dndSortableRect.width-refNode.$dndSortableRect.width;
+            //items.splice(movedNode[$].index, 1);
+            //items.splice(refNode[$].index, 0, movedNode);
+            movedNode[$].index = refNode[$].index;
+            movedNode[$].rect.top = refNode[$].rect.top;
+            movedNode[$].rect.left = refNode[$].rect.left;
             while ((next = refNode.nextElementSibling) && (next !== limitNode))
             {
-                refNode.$dndSortableRect.top = next.$dndSortableRect.top+deltaY;
-                refNode.$dndSortableRect.left = next.$dndSortableRect.left+deltaX;
-                refNode.style.top = String(refNode.$dndSortableRect.top-parentRect.top)+'px';
-                refNode.style.left = String(refNode.$dndSortableRect.left-parentRect.left)+'px';
-                deltaY = refNode.$dndSortableRect.height-next.$dndSortableRect.height;
-                deltaX = refNode.$dndSortableRect.width-next.$dndSortableRect.width;
+                refNode[$].index++;
+                refNode[$].rect.top = next[$].rect.top;
+                refNode[$].rect.left = next[$].rect.left;
+                refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
+                refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
                 refNode = next;
             }
-            refNode.$dndSortableRect.top = posY+deltaY;
-            refNode.$dndSortableRect.left = posX+deltaX;
-            refNode.style.top = String(refNode.$dndSortableRect.top-parentRect.top)+'px';
-            refNode.style.left = String(refNode.$dndSortableRect.left-parentRect.left)+'px';
+            refNode[$].index++;
+            refNode[$].rect.top = posY;
+            refNode[$].rect.left = posX;
+            refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
+            refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
         }
         else if (0 < dir)
         {
             limitNode = movedNode.previousElementSibling;
-            posY = movedNode.$dndSortableRect.top;
-            posX = movedNode.$dndSortableRect.left;
             // Move `movedNode` after the `refNode`
             if (refNode.nextElementSibling)
                 parent.insertBefore(movedNode, refNode.nextElementSibling);
             else
                 parent.appendChild(movedNode);
-            items.splice(movedIndex, 1);
-            refIndex = items.indexOf(refNode);
-            items.splice(refIndex+1, 0, movedNode);
-            movedNode.$dndSortableRect.top = refNode.$dndSortableRect.top;
-            movedNode.$dndSortableRect.left = refNode.$dndSortableRect.left;
-            deltaY = movedNode.$dndSortableRect.height-refNode.$dndSortableRect.height;
-            deltaX = movedNode.$dndSortableRect.width-refNode.$dndSortableRect.width;
-            while ((next = refNode.previousElementSibling) && (next !== limitNode))
+            //items.splice(movedNode[$].index, 1);
+            //items.splice(refNode[$].index, 0, movedNode);
+            movedNode[$].index = refNode[$].index;
+            refNode = limitNode ? limitNode.nextElementSibling : refNode;
+            next = movedNode;
+            do
             {
-                refNode.$dndSortableRect.top = next.$dndSortableRect.top-deltaY;
-                refNode.$dndSortableRect.left = next.$dndSortableRect.left-deltaX;
-                refNode.style.top = String(refNode.$dndSortableRect.top-parentRect.top)+'px';
-                refNode.style.left = String(refNode.$dndSortableRect.left-parentRect.left)+'px';
-                deltaY = refNode.$dndSortableRect.height-next.$dndSortableRect.height;
-                deltaX = refNode.$dndSortableRect.width-next.$dndSortableRect.width;
-                refNode = next;
+                refNode[$].index--;
+                posY = refNode[$].rect.top;
+                posX = refNode[$].rect.left;
+                refNode[$].rect.top = next[$].rect.top;
+                refNode[$].rect.left = next[$].rect.left;
+                refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
+                refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
+                next = refNode;
+                refNode = refNode.nextElementSibling;
             }
-            refNode.$dndSortableRect.top = posY-deltaY;
-            refNode.$dndSortableRect.left = posX-deltaX;
-            refNode.style.top = String(refNode.$dndSortableRect.top-parentRect.top)+'px';
-            refNode.style.left = String(refNode.$dndSortableRect.left-parentRect.left)+'px';
+            while ((refNode) && (refNode !== movedNode));
+            refNode[$].rect.top = posY;
+            refNode[$].rect.left = posX;
+            refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
+            refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
         }
     };
 
@@ -252,7 +286,7 @@ function setup(self, TYPE)
         handlerEle = e.target;
         if (
             !handlerEle
-            || !handlerEle.classList.contains(self.opts.handle || 'dnd-sortable-handle')
+            || !hasClass(handlerEle, self.opts.handle || 'dnd-sortable-handle')
         )
         {
             clear();
@@ -283,37 +317,56 @@ function setup(self, TYPE)
         closestEle = null;
 
         parentRect = parent.getBoundingClientRect();
-        items = [].map.call(parent.children, function(el) {
+        parentStyle = {
+            width: parent.style.getPropertyValue('width'),
+            height: parent.style.getPropertyValue('height')
+        };
+        items = [].map.call(parent.children, function(el, index) {
             var r = el.getBoundingClientRect();
-            el.$dndSortableRect = {top: r.top, left: r.left, width: r.width, height: r.height};
+            el[$] = {
+                index: index,
+                rect: {
+                    top: r.top,
+                    left: r.left,
+                    width: r.width,
+                    height: r.height
+                },
+                style: {
+                    pos: el.style.getPropertyValue('position'),
+                    top: el.style.getPropertyValue('top'),
+                    left: el.style.getPropertyValue('left'),
+                    width: el.style.getPropertyValue('width'),
+                    height: el.style.getPropertyValue('height')
+                }
+            };
             return el;
         });
-        parent.classList.add(self.opts.activeArea || 'dnd-sortable-area');
-        parent.style.width = String(parentRect.width) + 'px';
-        parent.style.height = String(parentRect.height) + 'px';
+        addClass(parent, self.opts.activeArea || 'dnd-sortable-area');
+        parent.style.width = Str(parentRect.width) + 'px';
+        parent.style.height = Str(parentRect.height) + 'px';
         draggingEle.draggable = false; // disable native drag
-        draggingEle.classList.add(self.opts.activeItem || 'dnd-sortable-dragged');
+        addClass(draggingEle, self.opts.activeItem || 'dnd-sortable-dragged');
         items.forEach(function(el) {
             el.style.position = 'absolute';
-            el.style.top = String(el.$dndSortableRect.top-parentRect.top)+'px';
-            el.style.left = String(el.$dndSortableRect.left-parentRect.left)+'px';
-            el.style.width = String(el.$dndSortableRect.width)+'px';
-            el.style.height = String(el.$dndSortableRect.height)+'px';
+            el.style.top = Str(el[$].rect.top-parentRect.top)+'px';
+            el.style.left = Str(el[$].rect.left-parentRect.left)+'px';
+            el.style.width = Str(el[$].rect.width)+'px';
+            el.style.height = Str(el[$].rect.height)+'px';
         });
 
         lastX = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
         lastY = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
-        X0 = lastX + parentRect.left - draggingEle.$dndSortableRect.left;
-        Y0 = lastY + parentRect.top - draggingEle.$dndSortableRect.top;
+        X0 = lastX + parentRect.left - draggingEle[$].rect.left;
+        Y0 = lastY + parentRect.top - draggingEle[$].rect.top;
 
         if (UNRESTRICTED === TYPE)
         {
-            draggingEle.style.top = String(lastY-Y0)+'px';
-            draggingEle.style.left = String(lastX-X0)+'px';
+            draggingEle.style.top = Str(lastY-Y0)+'px';
+            draggingEle.style.left = Str(lastX-X0)+'px';
         }
         else
         {
-            draggingEle.style[coord] = String(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0)+'px';
+            draggingEle.style[coord] = Str(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0)+'px';
         }
 
         document.addEventListener('touchmove', dragMove, false);
@@ -333,15 +386,15 @@ function setup(self, TYPE)
 
         if (UNRESTRICTED === TYPE)
         {
-            draggingEle.style.top = String(Y - Y0)+'px';
-            draggingEle.style.left = String(X - X0)+'px';
+            draggingEle.style.top = Str(Y - Y0)+'px';
+            draggingEle.style.left = Str(X - X0)+'px';
             hoverEle = document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
                 if (
                     (el !== draggingEle)
-                    && el.classList.contains(self.opts.item || 'dnd-sortable-item')
+                    && hasClass(el, self.opts.item || 'dnd-sortable-item')
                 )
                 {
-                    let pp = intersect(draggingEle, el);
+                    var pp = intersect(draggingEle, el, coord, size);
                     if (pp > p)
                     {
                         p = pp;
@@ -350,25 +403,29 @@ function setup(self, TYPE)
                 }
                 return candidate;
             }, null);
-            delta = hoverEle ? items.indexOf(hoverEle) - items.indexOf(draggingEle) : dir;
+            delta = hoverEle ? hoverEle[$].index - draggingEle[$].index : dir;
         }
         else if (HORIZONTAL === TYPE)
         {
-            draggingEle.style[coord] = String(X - X0)+'px';
+            draggingEle.style[coord] = Str(X - X0)+'px';
             delta = deltaX;
         }
         else
         {
-            draggingEle.style[coord] = String(Y - Y0)+'px';
+            draggingEle.style[coord] = Str(Y - Y0)+'px';
             delta = deltaY;
         }
 
         if (
             closestEle
-            && ((0 > dir && 0 < delta) || (0 < dir && 0 > delta))
+            && (
+                (0 > dir && 0 < delta)
+                || (0 < dir && 0 > delta)
+                || (!intersect(draggingEle, closestEle, coord, size))
+            )
         )
         {
-            closestEle.classList.remove(self.opts.closestItem || 'dnd-sortable-closest');
+            removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
             closestEle = null;
         }
 
@@ -379,10 +436,10 @@ function setup(self, TYPE)
                 hoverEle = hoverEle || document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
                     if (
                         (el !== draggingEle)
-                        && el.classList.contains(self.opts.item || 'dnd-sortable-item')
+                        && hasClass(el, self.opts.item || 'dnd-sortable-item')
                     )
                     {
-                        let pp = intersect(draggingEle, el);
+                        var pp = intersect(draggingEle, el, coord, size);
                         if (pp > p)
                         {
                             p = pp;
@@ -395,9 +452,9 @@ function setup(self, TYPE)
             else
             {
                 hoverEle = document.elementsFromPoint(X, Y).filter(function(el) {
-                    return (el !== draggingEle) && el.classList.contains(self.opts.item || 'dnd-sortable-item');
+                    return (el !== draggingEle) && hasClass(el, self.opts.item || 'dnd-sortable-item');
                 })[0];
-                if (hoverEle) p = intersect(draggingEle, hoverEle);
+                if (hoverEle) p = intersect(draggingEle, hoverEle, coord, size);
             }
 
             if (hoverEle && p)
@@ -413,13 +470,13 @@ function setup(self, TYPE)
 
         if (closestEle)
         {
-            p = p || intersect(draggingEle, closestEle);
+            p = p || intersect(draggingEle, closestEle, coord, size);
             if (p)
             {
                 if (p >= 0.3)
                 {
-                    closestEle.classList.add(self.opts.closestItem || 'dnd-sortable-closest');
-                    if (!moved)
+                    addClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
+                    if (p >= 0.6 && !moved)
                     {
                         moved = true;
                         move(draggingEle, closestEle, dir);
@@ -427,12 +484,12 @@ function setup(self, TYPE)
                 }
                 else
                 {
-                    closestEle.classList.remove(self.opts.closestItem || 'dnd-sortable-closest');
+                    removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
                 }
             }
             else
             {
-                closestEle.classList.remove(self.opts.closestItem || 'dnd-sortable-closest');
+                removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
                 closestEle = null;
             }
         }
@@ -447,18 +504,25 @@ function setup(self, TYPE)
             document.removeEventListener('touchcancel', dragEnd, false);
             document.removeEventListener('mousemove', dragMove, false);
             document.removeEventListener('mouseup', dragEnd, false);
-            parent.style.removeProperty('width');
-            parent.style.removeProperty('height');
-            parent.classList.remove(self.opts.activeArea || 'dnd-sortable-area');
-            if (closestEle) closestEle.classList.remove(self.opts.closestItem || 'dnd-sortable-closest');
-            draggingEle.classList.remove(self.opts.activeItem || 'dnd-sortable-dragged');
+            if ('' !== parentStyle.width) parent.style.width = parentStyle.width;
+            else parent.style.removeProperty('width');
+            if ('' !== parentStyle.height) parent.style.height = parentStyle.height;
+            else parent.style.removeProperty('height');
+            removeClass(parent, self.opts.activeArea || 'dnd-sortable-area');
+            if (closestEle) removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
+            removeClass(draggingEle, self.opts.activeItem || 'dnd-sortable-dragged');
             items.forEach(function(el) {
-                el.$dndSortableRect = null;
-                el.style.removeProperty('position');
-                el.style.removeProperty('top');
-                el.style.removeProperty('left');
-                el.style.removeProperty('width');
-                el.style.removeProperty('height');
+                if ('' !== el[$].style.pos) el.style.position = el[$].style.pos;
+                else el.style.removeProperty('position');
+                if ('' !== el[$].style.top) el.style.top = el[$].style.top;
+                else el.style.removeProperty('top');
+                if ('' !== el[$].style.left) el.style.left = el[$].style.left;
+                else el.style.removeProperty('left');
+                if ('' !== el[$].style.width) el.style.width = el[$].style.width;
+                else el.style.removeProperty('width');
+                if ('' !== el[$].style.height) el.style.height = el[$].style.height;
+                else el.style.removeProperty('height');
+                el[$] = null;
             });
             isDraggingStarted = false;
         }
@@ -471,6 +535,7 @@ function setup(self, TYPE)
         parent = null;
         items = null;
         parentRect = null;
+        parentStyle = null;
     };
 
     var dragEnd = function(e) {
@@ -509,7 +574,7 @@ function AreaSortable(type, opts)
     var self = this;
     if (!(self instanceof AreaSortable)) return new AreaSortable(type, opts);
     self.opts = opts || {};
-    switch (String(type || 'vertical').toLowerCase())
+    switch (Str(type || 'vertical').toLowerCase())
     {
         case 'unrestricted':
             setup(self, UNRESTRICTED);
