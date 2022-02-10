@@ -31,7 +31,10 @@ var VERSION = '1.0.0',
     trim_re = /^\s+|\s+$/g,
     trim = Str.prototype.trim
         ? function(s) {return s.trim();}
-        : function(s) {return s.replace(trim_re, '');}
+        : function(s) {return s.replace(trim_re, '');},
+    nextTick = 'undefined' !== typeof Promise
+        ? Promise.resolve().then.bind(Promise.resolve())
+        : function(cb) {setTimeout(cb, 0);}
 ;
 
 // add custom property to Element.prototype to avoid browser issues
@@ -161,16 +164,42 @@ function restoreStyle(el, props, style)
 {
     style = style || el[$].style;
     props.forEach(function(prop){
-        if ('' !== style[prop]) el.style[prop] = style[prop];
+        if (hasProp.call(style, prop) && ('' !== style[prop])) el.style[prop] = style[prop];
         else el.style.removeProperty(prop);
     });
+}
+
+function repaint(el)
+{
+    return el.offsetWidth;
+}
+function animate(el, ms, offset)
+{
+    if (0 < ms)
+    {
+        el.style.transition = 'none';
+        el.style.transform = 'translate3d('+Str(-(offset.left || 0))+'px,'+Str(-(offset.top || 0))+'px,0)';
+        repaint(el);
+        var trs = 'all '+Str(ms)+'ms', trf = 'translate3d(0,0,0)';
+        el.style.transform = trf;
+        el.style.transition = trs;
+        var stop = function() {
+            if (time) clearTimeout(time);
+            time = null;
+            if (el.style.transition === trs) el.style.transition = 'none';
+            if (el.style.transform === trf) el.style.transform = 'none';
+            el[$].animation = null;
+            return el;
+        }, time = setTimeout(stop, ms);
+        el[$].animation = {stop: stop};
+    }
 }
 
 function setup(self, TYPE)
 {
     var dragged, handler, closest, first, last,
         parent, items, parentRect, parentStyle,
-        X0, Y0, lastX, lastY, dir, moved, move, intersect,
+        X0, Y0, lastX, lastY, dir, overlap, moved, move, intersect,
         isDraggingStarted = false, attached = false,
         size = HORIZONTAL === TYPE ? 'width' : 'height',
         coord = HORIZONTAL === TYPE ? 'left' : 'top'
@@ -187,10 +216,11 @@ function setup(self, TYPE)
         parentRect = null;
         parentStyle = null;
         moved = false;
+        overlap = 0;
     };
 
-    var move1D = function(movedNode, refNode, dir) {
-        var next, limitNode, delta = 0;
+    var move1D = function(movedNode, refNode, dir, ms) {
+        var next, target = refNode, limitNode, delta = 0, offset;
         if (first === last) return;
         if (0 > dir)
         {
@@ -205,15 +235,22 @@ function setup(self, TYPE)
             delta = movedNode[$].rect[size] - refNode[$].rect[size];
             while ((next = refNode.nextElementSibling) && (next !== limitNode))
             {
+                if (refNode[$].animation) refNode[$].animation.stop();
                 refNode[$].index++;
+                refNode[$].rect.prev[coord] = refNode[$].rect[coord];
                 refNode[$].rect[coord] = next[$].rect[coord] + delta;
                 refNode.style[coord] = Str(refNode[$].rect[coord] - parentRect[coord])+'px';
                 delta += refNode[$].rect[size] - next[$].rect[size];
                 refNode = next;
             }
+            if (refNode[$].animation) refNode[$].animation.stop();
             refNode[$].index++;
+            refNode[$].rect.prev[coord] = refNode[$].rect[coord];
             refNode[$].rect[coord] = movedNode[$].rect.prev[coord] + delta;
             refNode.style[coord] = Str(refNode[$].rect[coord] - parentRect[coord])+'px';
+            offset = {};
+            offset[coord] = target[$].rect[coord] - target[$].rect.prev[coord];
+            animate(target, ms, offset);
         }
         else if (0 < dir)
         {
@@ -236,6 +273,7 @@ function setup(self, TYPE)
             next[$].rect.prev[coord] = next[$].rect[coord];
             do
             {
+                if (refNode[$].animation) refNode[$].animation.stop();
                 refNode[$].index--;
                 refNode[$].rect.prev[coord] = refNode[$].rect[coord];
                 refNode[$].rect[coord] = next[$].rect.prev[coord] + delta;
@@ -246,11 +284,14 @@ function setup(self, TYPE)
             }
             while ((refNode) && (refNode !== movedNode));
             movedNode[$].rect[coord] = next[$].rect.prev[coord] + delta;
+            offset = {};
+            offset[coord] = target[$].rect[coord] - target[$].rect.prev[coord];
+            animate(target, ms, offset);
         }
     };
 
-    var move2D = function(movedNode, refNode, dir) {
-        var next, limitNode;
+    var move2D = function(movedNode, refNode, dir, ms) {
+        var next, target = refNode, limitNode;
         if (first === last) return;
         if (0 > dir)
         {
@@ -268,18 +309,28 @@ function setup(self, TYPE)
             movedNode[$].rect.left = refNode[$].rect.left;
             while ((next = refNode.nextElementSibling) && (next !== limitNode))
             {
+                if (refNode[$].animation) refNode[$].animation.stop();
                 refNode[$].index++;
+                refNode[$].rect.prev.top = refNode[$].rect.top;
+                refNode[$].rect.prev.left = refNode[$].rect.left;
                 refNode[$].rect.top = next[$].rect.top;
                 refNode[$].rect.left = next[$].rect.left;
                 refNode.style.top = Str(refNode[$].rect.top - parentRect.top)+'px';
                 refNode.style.left = Str(refNode[$].rect.left - parentRect.left)+'px';
                 refNode = next;
             }
+            if (refNode[$].animation) refNode[$].animation.stop();
             refNode[$].index++;
+            refNode[$].rect.prev.top = refNode[$].rect.top;
+            refNode[$].rect.prev.left = refNode[$].rect.left;
             refNode[$].rect.top = movedNode[$].rect.prev.top;
             refNode[$].rect.left = movedNode[$].rect.prev.left;
             refNode.style.top = Str(refNode[$].rect.top - parentRect.top)+'px';
             refNode.style.left = Str(refNode[$].rect.left - parentRect.left)+'px';
+            animate(target, ms, {
+                top: target[$].rect.top - target[$].rect.prev.top,
+                left: target[$].rect.left - target[$].rect.prev.left
+            });
         }
         else if (0 < dir)
         {
@@ -304,6 +355,7 @@ function setup(self, TYPE)
             next[$].rect.prev.left = next[$].rect.left;
             do
             {
+                if (refNode[$].animation) refNode[$].animation.stop();
                 refNode[$].index--;
                 refNode[$].rect.prev.top = refNode[$].rect.top;
                 refNode[$].rect.prev.left = refNode[$].rect.left;
@@ -317,6 +369,10 @@ function setup(self, TYPE)
             while ((refNode) && (refNode !== movedNode));
             movedNode[$].rect.top = next[$].rect.prev.top;
             movedNode[$].rect.left = next[$].rect.prev.left;
+            animate(target, ms, {
+                top: target[$].rect.top - target[$].rect.prev.top,
+                left: target[$].rect.left - target[$].rect.prev.left
+            });
         }
     };
 
@@ -325,6 +381,8 @@ function setup(self, TYPE)
 
     var dragStart = function(e) {
         if (isDraggingStarted) return;
+        // not with right click
+        if (/mousedown|pointerdown/.test(e.type) && 0 !== e.button) return;
 
         clear();
 
@@ -355,7 +413,8 @@ function setup(self, TYPE)
         isDraggingStarted = true;
 
         e.preventDefault();
-        e.stopPropagation();
+        e.stopPropagation && e.stopPropagation();
+        e.stopImmediatePropagation && e.stopImmediatePropagation();
 
         parentRect = parent.getBoundingClientRect();
         parentStyle = storeStyle(parent, ['width', 'height']);
@@ -375,7 +434,9 @@ function setup(self, TYPE)
                     'top',
                     'left',
                     'width',
-                    'height'
+                    'height',
+                    'transform',
+                    'transition'
                 ])
             };
             return el;
@@ -508,22 +569,22 @@ function setup(self, TYPE)
         if (
             closest
             && (
-                (0 > dir && 0 < delta)
-                || (0 < dir && 0 > delta)
-                || (hovered && (closest !== hovered))
+                (0 > dir && 0 < delta && overlap < 0.5)
+                || (0 < dir && 0 > delta && overlap < 0.5)
+                || (hovered && (closest !== hovered) && (overlap < p))
                 || (!intersect(dragged, closest, coord, size))
             )
         )
         {
             removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
-            closest = null;
-            //moved = false;
+            overlap = 0; closest = null;
         }
 
         if (!closest && hovered && p)
         {
             closest = hovered;
             dir = 0 < delta ? 1 : -1;
+            overlap = p;
             moved = false;
         }
 
@@ -535,28 +596,28 @@ function setup(self, TYPE)
             p = p || intersect(dragged, closest, coord, size);
             if (p)
             {
+                overlap = p;
                 if (p >= 0.3)
                 {
                     addClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
                     if (p > 0.5 && !moved)
                     {
                         moved = true;
-                        move(dragged, closest, dir);
-                        removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
-                        closest = null;
+                        move(dragged, closest, dir, self.opts.animationMs);
+                        //removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                        //overlap = 0; closest = null;
                     }
                 }
                 else
                 {
                     removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
-                    closest = null;
+                    //overlap = 0; closest = null;
                 }
             }
             else
             {
                 removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
-                closest = null;
-                moved = false;
+                overlap = 0; closest = null;
             }
         }
     }, 60);
@@ -580,7 +641,9 @@ function setup(self, TYPE)
                     'top',
                     'left',
                     'width',
-                    'height'
+                    'height',
+                    'transform',
+                    'transition'
                 ]);
                 el[$] = null;
             });
