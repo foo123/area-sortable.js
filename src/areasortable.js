@@ -31,9 +31,10 @@ var VERSION = '1.0.0',
     trim_re = /^\s+|\s+$/g,
     trim = Str.prototype.trim
         ? function(s) {return s.trim();}
-        : function(s) {return s.replace(trim_re,'');}
+        : function(s) {return s.replace(trim_re, '');}
 ;
 
+// add custom property to Element.prototype to avoid browser issues
 if (
     window.Element
     && !hasProp.call(window.Element.prototype, $)
@@ -49,11 +50,8 @@ function hasClass(el, className)
 }
 function addClass(el, className)
 {
-    /*if (!hasClass(el, className))
-    {*/
-        if (el.classList) el.classList.add(className);
-        else el.className = trim('' === el.className ? className : el.className + ' ' + className);
-    /*}*/
+    if (el.classList) el.classList.add(className);
+    else if (!hasClass(el, className)) el.className = '' === el.className ? className : (el.className + ' ' + className);
 }
 function removeClass(el, className)
 {
@@ -102,7 +100,6 @@ function intersect1D(nodeA, nodeB, coord, size)
         )
     );
 }
-
 function intersect2D(nodeA, nodeB, coord, size)
 {
     var rectA = nodeA.getBoundingClientRect(),
@@ -153,9 +150,25 @@ function intersect2D(nodeA, nodeB, coord, size)
     );
 }
 
+function storeStyle(el, props)
+{
+    return props.reduce(function(style, prop){
+        style[prop] = el.style.getPropertyValue(prop);
+        return style;
+    }, {});
+}
+function restoreStyle(el, props, style)
+{
+    style = style || el[$].style;
+    props.forEach(function(prop){
+        if ('' !== style[prop]) el.style[prop] = style[prop];
+        else el.style.removeProperty(prop);
+    });
+}
+
 function setup(self, TYPE)
 {
-    var closestEle, draggingEle, handlerEle,
+    var dragged, handler, closest, first, last,
         parent, items, parentRect, parentStyle,
         X0, Y0, lastX, lastY, dir, moved, move, intersect,
         isDraggingStarted = false, attached = false,
@@ -163,69 +176,94 @@ function setup(self, TYPE)
         coord = HORIZONTAL === TYPE ? 'left' : 'top'
     ;
 
+    var clear = function() {
+        dragged = null;
+        handler = null;
+        closest = null;
+        first = null;
+        last = null;
+        parent = null;
+        items = null;
+        parentRect = null;
+        parentStyle = null;
+        moved = false;
+    };
+
     var move1D = function(movedNode, refNode, dir) {
-        var next, delta = 0, pos, limitNode;
+        var next, limitNode, delta = 0;
+        if (first === last) return;
         if (0 > dir)
         {
             limitNode = movedNode.nextElementSibling;
-            pos = movedNode[$].rect[coord];
             // Move `movedNode` before the `refNode`
+            if (first === refNode) first = movedNode;
+            if (last === movedNode) last = movedNode.previousElementSibling;
             parent.insertBefore(movedNode, refNode);
             movedNode[$].index = refNode[$].index;
+            movedNode[$].rect.prev[coord] = movedNode[$].rect[coord];
             movedNode[$].rect[coord] = refNode[$].rect[coord];
-            delta = movedNode[$].rect[size]-refNode[$].rect[size];
+            delta = movedNode[$].rect[size] - refNode[$].rect[size];
             while ((next = refNode.nextElementSibling) && (next !== limitNode))
             {
                 refNode[$].index++;
-                refNode[$].rect[coord] = next[$].rect[coord]+delta;
-                refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
-                delta = refNode[$].rect[size]-next[$].rect[size];
+                refNode[$].rect[coord] = next[$].rect[coord] + delta;
+                refNode.style[coord] = Str(refNode[$].rect[coord] - parentRect[coord])+'px';
+                delta += refNode[$].rect[size] - next[$].rect[size];
                 refNode = next;
             }
             refNode[$].index++;
-            refNode[$].rect[coord] = pos+delta;
-            refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
+            refNode[$].rect[coord] = movedNode[$].rect.prev[coord] + delta;
+            refNode.style[coord] = Str(refNode[$].rect[coord] - parentRect[coord])+'px';
         }
         else if (0 < dir)
         {
-            limitNode = movedNode.previousElementSibling;
+            limitNode = movedNode.nextElementSibling;
             // Move `movedNode` after the `refNode`
+            if (first === movedNode) first = limitNode;
             if (refNode.nextElementSibling)
+            {
                 parent.insertBefore(movedNode, refNode.nextElementSibling);
+            }
             else
+            {
                 parent.appendChild(movedNode);
+                last = movedNode;
+            }
             movedNode[$].index = refNode[$].index;
-            refNode = limitNode ? limitNode.nextElementSibling : refNode;
+            refNode = limitNode;
             next = movedNode;
             delta = 0;
+            next[$].rect.prev[coord] = next[$].rect[coord];
             do
             {
                 refNode[$].index--;
-                pos = refNode[$].rect[coord];
-                refNode[$].rect[coord] = next[$].rect[coord]+delta;
-                refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
-                delta = refNode[$].rect[size]-next[$].rect[size];
+                refNode[$].rect.prev[coord] = refNode[$].rect[coord];
+                refNode[$].rect[coord] = next[$].rect.prev[coord] + delta;
+                refNode.style[coord] = Str(refNode[$].rect[coord] - parentRect[coord])+'px';
+                delta += -(next[$].rect[size] - refNode[$].rect[size]);
                 next = refNode;
                 refNode = refNode.nextElementSibling;
             }
             while ((refNode) && (refNode !== movedNode));
-            refNode[$].rect[coord] = pos+delta;
-            refNode.style[coord] = Str(refNode[$].rect[coord]-parentRect[coord])+'px';
+            movedNode[$].rect[coord] = next[$].rect.prev[coord] + delta;
         }
     };
 
     var move2D = function(movedNode, refNode, dir) {
-        var next, posX, posY, limitNode;
+        var next, limitNode;
+        if (first === last) return;
         if (0 > dir)
         {
             limitNode = movedNode.nextElementSibling;
-            posY = movedNode[$].rect.top;
-            posX = movedNode[$].rect.left;
             // Move `movedNode` before the `refNode`
+            if (first === refNode) first = movedNode;
+            if (last === movedNode) last = movedNode.previousElementSibling;
             parent.insertBefore(movedNode, refNode);
             //items.splice(movedNode[$].index, 1);
             //items.splice(refNode[$].index, 0, movedNode);
             movedNode[$].index = refNode[$].index;
+            movedNode[$].rect.prev.top = movedNode[$].rect.top;
+            movedNode[$].rect.prev.left = movedNode[$].rect.left;
             movedNode[$].rect.top = refNode[$].rect.top;
             movedNode[$].rect.left = refNode[$].rect.left;
             while ((next = refNode.nextElementSibling) && (next !== limitNode))
@@ -233,94 +271,94 @@ function setup(self, TYPE)
                 refNode[$].index++;
                 refNode[$].rect.top = next[$].rect.top;
                 refNode[$].rect.left = next[$].rect.left;
-                refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
-                refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
+                refNode.style.top = Str(refNode[$].rect.top - parentRect.top)+'px';
+                refNode.style.left = Str(refNode[$].rect.left - parentRect.left)+'px';
                 refNode = next;
             }
             refNode[$].index++;
-            refNode[$].rect.top = posY;
-            refNode[$].rect.left = posX;
-            refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
-            refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
+            refNode[$].rect.top = movedNode[$].rect.prev.top;
+            refNode[$].rect.left = movedNode[$].rect.prev.left;
+            refNode.style.top = Str(refNode[$].rect.top - parentRect.top)+'px';
+            refNode.style.left = Str(refNode[$].rect.left - parentRect.left)+'px';
         }
         else if (0 < dir)
         {
-            limitNode = movedNode.previousElementSibling;
+            limitNode = movedNode.nextElementSibling;
             // Move `movedNode` after the `refNode`
+            if (first === movedNode) first = limitNode;
             if (refNode.nextElementSibling)
+            {
                 parent.insertBefore(movedNode, refNode.nextElementSibling);
+            }
             else
+            {
                 parent.appendChild(movedNode);
+                last = movedNode;
+            }
             //items.splice(movedNode[$].index, 1);
             //items.splice(refNode[$].index, 0, movedNode);
             movedNode[$].index = refNode[$].index;
-            refNode = limitNode ? limitNode.nextElementSibling : refNode;
+            refNode = limitNode;
             next = movedNode;
+            next[$].rect.prev.top = next[$].rect.top;
+            next[$].rect.prev.left = next[$].rect.left;
             do
             {
                 refNode[$].index--;
-                posY = refNode[$].rect.top;
-                posX = refNode[$].rect.left;
-                refNode[$].rect.top = next[$].rect.top;
-                refNode[$].rect.left = next[$].rect.left;
-                refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
-                refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
+                refNode[$].rect.prev.top = refNode[$].rect.top;
+                refNode[$].rect.prev.left = refNode[$].rect.left;
+                refNode[$].rect.top = next[$].rect.prev.top;
+                refNode[$].rect.left = next[$].rect.prev.left;
+                refNode.style.top = Str(refNode[$].rect.top - parentRect.top)+'px';
+                refNode.style.left = Str(refNode[$].rect.left - parentRect.left)+'px';
                 next = refNode;
                 refNode = refNode.nextElementSibling;
             }
             while ((refNode) && (refNode !== movedNode));
-            refNode[$].rect.top = posY;
-            refNode[$].rect.left = posX;
-            refNode.style.top = Str(refNode[$].rect.top-parentRect.top)+'px';
-            refNode.style.left = Str(refNode[$].rect.left-parentRect.left)+'px';
+            movedNode[$].rect.top = next[$].rect.prev.top;
+            movedNode[$].rect.left = next[$].rect.prev.left;
         }
     };
 
     move = UNRESTRICTED === TYPE ? move2D : move1D;
     intersect = UNRESTRICTED === TYPE ? intersect2D : intersect1D;
 
-
     var dragStart = function(e) {
         if (isDraggingStarted) return;
 
-        handlerEle = e.target;
+        clear();
+
+        handler = e.target;
         if (
-            !handlerEle
-            || !hasClass(handlerEle, self.opts.handle || 'dnd-sortable-handle')
+            !handler
+            || !hasClass(handler, self.opts.handle || 'dnd-sortable-handle')
         )
         {
             clear();
             return;
         }
 
-        draggingEle = handlerEle.closest('.'+(self.opts.item || 'dnd-sortable-item'));
-        if (!draggingEle)
+        dragged = handler.closest('.'+(self.opts.item || 'dnd-sortable-item'));
+        if (!dragged)
         {
             clear();
             return;
         }
 
-        parent = draggingEle.parentNode;
-        if (!parent || parent.id !== self.opts.container)
+        parent = dragged.parentNode;
+        if (!parent || (parent.id !== self.opts.container))
         {
             clear();
             return;
         }
+
+        isDraggingStarted = true;
 
         e.preventDefault();
         e.stopPropagation();
 
-        if ('function' === typeof self.opts.onStart)
-            self.opts.onStart(draggingEle);
-
-        isDraggingStarted = true;
-        closestEle = null;
-
         parentRect = parent.getBoundingClientRect();
-        parentStyle = {
-            width: parent.style.getPropertyValue('width'),
-            height: parent.style.getPropertyValue('height')
-        };
+        parentStyle = storeStyle(parent, ['width', 'height']);
         items = [].map.call(parent.children, function(el, index) {
             var r = el.getBoundingClientRect();
             el[$] = {
@@ -329,23 +367,29 @@ function setup(self, TYPE)
                     top: r.top,
                     left: r.left,
                     width: r.width,
-                    height: r.height
+                    height: r.height,
+                    prev: {}
                 },
-                style: {
-                    pos: el.style.getPropertyValue('position'),
-                    top: el.style.getPropertyValue('top'),
-                    left: el.style.getPropertyValue('left'),
-                    width: el.style.getPropertyValue('width'),
-                    height: el.style.getPropertyValue('height')
-                }
+                style: storeStyle(el, [
+                    'position',
+                    'top',
+                    'left',
+                    'width',
+                    'height'
+                ])
             };
             return el;
         });
+        if (items.length)
+        {
+            first = items[0];
+            last = items[items.length-1];
+        }
         addClass(parent, self.opts.activeArea || 'dnd-sortable-area');
         parent.style.width = Str(parentRect.width) + 'px';
         parent.style.height = Str(parentRect.height) + 'px';
-        draggingEle.draggable = false; // disable native drag
-        addClass(draggingEle, self.opts.activeItem || 'dnd-sortable-dragged');
+        dragged.draggable = false; // disable native drag
+        addClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
         items.forEach(function(el) {
             el.style.position = 'absolute';
             el.style.top = Str(el[$].rect.top-parentRect.top)+'px';
@@ -354,19 +398,22 @@ function setup(self, TYPE)
             el.style.height = Str(el[$].rect.height)+'px';
         });
 
+        if ('function' === typeof self.opts.onStart)
+            self.opts.onStart(dragged);
+
         lastX = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
         lastY = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
-        X0 = lastX + parentRect.left - draggingEle[$].rect.left;
-        Y0 = lastY + parentRect.top - draggingEle[$].rect.top;
+        X0 = lastX + parentRect.left - dragged[$].rect.left;
+        Y0 = lastY + parentRect.top - dragged[$].rect.top;
 
         if (UNRESTRICTED === TYPE)
         {
-            draggingEle.style.top = Str(lastY-Y0)+'px';
-            draggingEle.style.left = Str(lastX-X0)+'px';
+            dragged.style.top = Str(lastY-Y0)+'px';
+            dragged.style.left = Str(lastX-X0)+'px';
         }
         else
         {
-            draggingEle.style[coord] = Str(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0)+'px';
+            dragged.style[coord] = Str(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0)+'px';
         }
 
         document.addEventListener('touchmove', dragMove, false);
@@ -377,123 +424,142 @@ function setup(self, TYPE)
     };
 
     var dragMove = throttle(function(e) {
-        var hoverEle, p = 0.0, Y, X, deltaX, deltaY, delta;
+        var hovered, p = 0.0, Y, X, deltaX, deltaY, delta,
+            c = 'top', s = 'height', zc = 'left', zs = 'width', z, d = 50;
+
+        if (VERTICAL === TYPE)
+        {
+            zc = 'top';
+            zs = 'height';
+        }
 
         X = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
         Y = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
         deltaX = X - lastX;
         deltaY = Y - lastY;
 
+        hovered = document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
+            if ((el !== dragged) && (el.parentNode === parent))
+            {
+                var pp = intersect(dragged, el, coord, size);
+                if (pp > p)
+                {
+                    p = pp;
+                    candidate = el;
+                }
+            }
+            return candidate;
+        }, null);
+
+        if (!hovered) z = dragged.getBoundingClientRect()[zc];
+
         if (UNRESTRICTED === TYPE)
         {
-            draggingEle.style.top = Str(Y - Y0)+'px';
-            draggingEle.style.left = Str(X - X0)+'px';
-            hoverEle = document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
-                if (
-                    (el !== draggingEle)
-                    && hasClass(el, self.opts.item || 'dnd-sortable-item')
-                )
-                {
-                    var pp = intersect(draggingEle, el, coord, size);
-                    if (pp > p)
-                    {
-                        p = pp;
-                        candidate = el;
-                    }
-                }
-                return candidate;
-            }, null);
-            delta = hoverEle ? hoverEle[$].index - draggingEle[$].index : dir;
-        }
-        else if (HORIZONTAL === TYPE)
-        {
-            draggingEle.style[coord] = Str(X - X0)+'px';
-            delta = deltaX;
+            if (
+                !hovered
+                && (dragged !== first)
+                && (0 <= first[$].rect[zc] - (z + dragged[$].rect[zs]))
+                && (first[$].rect[zc] - (z + dragged[$].rect[zs]) < d)
+                && (0.7 < (p = intersect1D(dragged, first, c, s)))
+            )
+                hovered = first;
+
+            if (
+                !hovered
+                && (dragged !== last)
+                && (0 <= z - (last[$].rect[zc] + last[$].rect[zs]))
+                && (z - (last[$].rect[zc] + last[$].rect[zs]) < d)
+                && (0.7 < (p = intersect1D(dragged, last, c, s)))
+            )
+                hovered = last;
+
+            dragged.style.top = Str(Y - Y0)+'px';
+            dragged.style.left = Str(X - X0)+'px';
+            delta = hovered ? hovered[$].index - dragged[$].index : (stdMath.abs(deltaY) >= stdMath.abs(deltaX) ? deltaY : deltaX);
         }
         else
         {
-            draggingEle.style[coord] = Str(Y - Y0)+'px';
-            delta = deltaY;
-        }
-
-        if (
-            closestEle
-            && (
-                (0 > dir && 0 < delta)
-                || (0 < dir && 0 > delta)
-                || (!intersect(draggingEle, closestEle, coord, size))
+            if (
+                !hovered
+                && (dragged !== first)
+                && (first[$].rect[zc] > (z + dragged[$].rect[zs]))
             )
-        )
-        {
-            removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
-            closestEle = null;
-        }
+                hovered = first;
 
-        if (!closestEle)
-        {
-            if (UNRESTRICTED === TYPE)
+            if (
+                !hovered
+                && (dragged !== last)
+                && (z > (last[$].rect[zc] + last[$].rect[zs]))
+            )
+                hovered = last;
+
+            if (HORIZONTAL === TYPE)
             {
-                hoverEle = hoverEle || document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
-                    if (
-                        (el !== draggingEle)
-                        && hasClass(el, self.opts.item || 'dnd-sortable-item')
-                    )
-                    {
-                        var pp = intersect(draggingEle, el, coord, size);
-                        if (pp > p)
-                        {
-                            p = pp;
-                            candidate = el;
-                        }
-                    }
-                    return candidate;
-                }, null);
+                dragged.style[coord] = Str(X - X0)+'px';
+                delta = deltaX;
             }
             else
             {
-                hoverEle = document.elementsFromPoint(X, Y).filter(function(el) {
-                    return (el !== draggingEle) && hasClass(el, self.opts.item || 'dnd-sortable-item');
-                })[0];
-                if (hoverEle) p = intersect(draggingEle, hoverEle, coord, size);
+                dragged.style[coord] = Str(Y - Y0)+'px';
+                delta = deltaY;
             }
+        }
 
-            if (hoverEle && p)
-            {
-                closestEle = hoverEle;
-                dir = 0 < delta ? 1 : -1;
-                moved = false;
-            }
+        if (
+            closest
+            && (
+                (0 > dir && 0 < delta)
+                || (0 < dir && 0 > delta)
+                || (hovered && (closest !== hovered))
+                || (!intersect(dragged, closest, coord, size))
+            )
+        )
+        {
+            removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+            closest = null;
+            //moved = false;
+        }
+
+        if (!closest && hovered && p)
+        {
+            closest = hovered;
+            dir = 0 < delta ? 1 : -1;
+            moved = false;
         }
 
         lastX = X;
         lastY = Y;
 
-        if (closestEle)
+        if (closest)
         {
-            p = p || intersect(draggingEle, closestEle, coord, size);
+            p = p || intersect(dragged, closest, coord, size);
             if (p)
             {
                 if (p >= 0.3)
                 {
-                    addClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
-                    if (p >= 0.6 && !moved)
+                    addClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                    if (p > 0.5 && !moved)
                     {
                         moved = true;
-                        move(draggingEle, closestEle, dir);
+                        move(dragged, closest, dir);
+                        removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                        closest = null;
                     }
                 }
                 else
                 {
-                    removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
+                    removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                    closest = null;
                 }
             }
             else
             {
-                removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
-                closestEle = null;
+                removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                closest = null;
+                moved = false;
             }
         }
-    }, 20);
+    }, 60);
 
     var restore = function() {
         if (isDraggingStarted)
@@ -504,47 +570,30 @@ function setup(self, TYPE)
             document.removeEventListener('touchcancel', dragEnd, false);
             document.removeEventListener('mousemove', dragMove, false);
             document.removeEventListener('mouseup', dragEnd, false);
-            if ('' !== parentStyle.width) parent.style.width = parentStyle.width;
-            else parent.style.removeProperty('width');
-            if ('' !== parentStyle.height) parent.style.height = parentStyle.height;
-            else parent.style.removeProperty('height');
             removeClass(parent, self.opts.activeArea || 'dnd-sortable-area');
-            if (closestEle) removeClass(closestEle, self.opts.closestItem || 'dnd-sortable-closest');
-            removeClass(draggingEle, self.opts.activeItem || 'dnd-sortable-dragged');
+            restoreStyle(parent, ['width', 'height'], parentStyle);
+            if (closest) removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+            removeClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
             items.forEach(function(el) {
-                if ('' !== el[$].style.pos) el.style.position = el[$].style.pos;
-                else el.style.removeProperty('position');
-                if ('' !== el[$].style.top) el.style.top = el[$].style.top;
-                else el.style.removeProperty('top');
-                if ('' !== el[$].style.left) el.style.left = el[$].style.left;
-                else el.style.removeProperty('left');
-                if ('' !== el[$].style.width) el.style.width = el[$].style.width;
-                else el.style.removeProperty('width');
-                if ('' !== el[$].style.height) el.style.height = el[$].style.height;
-                else el.style.removeProperty('height');
+                restoreStyle(el, [
+                    'position',
+                    'top',
+                    'left',
+                    'width',
+                    'height'
+                ]);
                 el[$] = null;
             });
             isDraggingStarted = false;
         }
     };
 
-    var clear = function() {
-        closestEle = null;
-        handlerEle = null;
-        draggingEle = null;
-        parent = null;
-        items = null;
-        parentRect = null;
-        parentStyle = null;
-    };
-
     var dragEnd = function(e) {
+        var el = dragged;
         restore();
-
-        if ('function' === typeof self.opts.onEnd)
-            self.opts.onEnd(draggingEle);
-
         clear();
+        if ('function' === typeof self.opts.onEnd)
+            self.opts.onEnd(el);
     };
 
     self.start = function() {
