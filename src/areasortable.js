@@ -6,35 +6,32 @@
 *  https://github.com/foo123/area-sortable.js
 *
 **/
-!function( root, name, factory ) {
+!function(root, name, factory) {
 "use strict";
-var m;
-if ( ('undefined'!==typeof Components)&&('object'===typeof Components.classes)&&('object'===typeof Components.classesByID)&&Components.utils&&('function'===typeof Components.utils['import']) ) /* XPCOM */
-    (root.EXPORTED_SYMBOLS = [ name ]) && (root[ name ] = factory.call( root ));
-else if ( ('object'===typeof module)&&module.exports ) /* CommonJS */
-    module.exports = factory.call( root );
-else if ( ('function'===typeof(define))&&define.amd&&('function'===typeof(require))&&('function'===typeof(require.specified))&&require.specified(name) ) /* AMD */
-    define(name,['require','exports','module'],function( ){return factory.call( root );});
-else if ( !(name in root) ) /* Browser/WebWorker/.. */
-    (root[ name ] = (m=factory.call( root )))&&('function'===typeof(define))&&define.amd&&define(function( ){return m;} );
-}(  /* current root */          'undefined' !== typeof self ? self : this,
-    /* module name */           "AreaSortable",
-    /* module factory */        function( undef ) {
+if ('object' === typeof exports)
+    // CommonJS module
+    module.exports = factory();
+else if ('function' === typeof define && define.amd)
+    // AMD. Register as an anonymous module.
+    define(function(req) {return factory();});
+else
+    root[name] = factory();
+}('undefined' !== typeof self ? self : this, 'AreaSortable', function(undef) {
 "use strict";
 
 var VERSION = '1.0.0',
     $ = '$dndSortable',
     VERTICAL = 1, HORIZONTAL = 2,
-    UNRESTRICTED = VERTICAL+HORIZONTAL,
+    UNRESTRICTED = VERTICAL + HORIZONTAL,
     stdMath = Math, Str = String,
     hasProp = Object.prototype.hasOwnProperty,
     trim_re = /^\s+|\s+$/g,
     trim = Str.prototype.trim
         ? function(s) {return s.trim();}
-        : function(s) {return s.replace(trim_re, '');},
+        : function(s) {return s.replace(trim_re, '');}/*,
     nextTick = 'undefined' !== typeof Promise
         ? Promise.resolve().then.bind(Promise.resolve())
-        : function(cb) {setTimeout(cb, 0);}
+        : function(cb) {setTimeout(cb, 0);}*/
 ;
 
 // add custom property to Element.prototype to avoid browser issues
@@ -77,8 +74,8 @@ function throttle(f, limit)
 
 function intersect1D(nodeA, nodeB, coord, size)
 {
-    var rectA = nodeA.getBoundingClientRect(),
-        rectB = nodeB.getBoundingClientRect();
+    var rectA = nodeA[$].r,
+        rectB = nodeB[$].rect;
     return stdMath.max(
         0.0,
         stdMath.min(
@@ -105,8 +102,7 @@ function intersect1D(nodeA, nodeB, coord, size)
 }
 function intersect2D(nodeA, nodeB, coord, size)
 {
-    var rectA = nodeA.getBoundingClientRect(),
-        rectB = nodeB.getBoundingClientRect(),
+    var rectA = nodeA[$].r, rectB = nodeB[$].rect,
         overlapX = 0, overlapY = 0;
     overlapX = stdMath.max(
         0,
@@ -417,7 +413,7 @@ function setup(self, TYPE)
         e.stopImmediatePropagation && e.stopImmediatePropagation();
 
         parentRect = parent.getBoundingClientRect();
-        parentStyle = storeStyle(parent, ['width', 'height']);
+        parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
         items = [].map.call(parent.children, function(el, index) {
             var r = el.getBoundingClientRect();
             el[$] = {
@@ -431,6 +427,8 @@ function setup(self, TYPE)
                 },
                 style: storeStyle(el, [
                     'position',
+                    'box-sizing',
+                    'overflow',
                     'top',
                     'left',
                     'width',
@@ -447,12 +445,15 @@ function setup(self, TYPE)
             last = items[items.length-1];
         }
         addClass(parent, self.opts.activeArea || 'dnd-sortable-area');
+        parent.style.boxSizing = 'border-box';
         parent.style.width = Str(parentRect.width) + 'px';
         parent.style.height = Str(parentRect.height) + 'px';
         dragged.draggable = false; // disable native drag
         addClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
         items.forEach(function(el) {
             el.style.position = 'absolute';
+            el.style.boxSizing = 'border-box';
+            el.style.overflow = 'hidden';
             el.style.top = Str(el[$].rect.top-parentRect.top)+'px';
             el.style.left = Str(el[$].rect.left-parentRect.left)+'px';
             el.style.width = Str(el[$].rect.width)+'px';
@@ -498,6 +499,7 @@ function setup(self, TYPE)
         Y = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
         deltaX = X - lastX;
         deltaY = Y - lastY;
+        dragged[$].r = dragged.getBoundingClientRect();
 
         hovered = document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
             if ((el !== dragged) && (el.parentNode === parent))
@@ -512,7 +514,7 @@ function setup(self, TYPE)
             return candidate;
         }, null);
 
-        if (!hovered) z = dragged.getBoundingClientRect()[zc];
+        z = dragged[$].r[zc];
 
         if (UNRESTRICTED === TYPE)
         {
@@ -632,12 +634,14 @@ function setup(self, TYPE)
             document.removeEventListener('mousemove', dragMove, false);
             document.removeEventListener('mouseup', dragEnd, false);
             removeClass(parent, self.opts.activeArea || 'dnd-sortable-area');
-            restoreStyle(parent, ['width', 'height'], parentStyle);
+            restoreStyle(parent, ['width', 'height', 'box-sizing'], parentStyle);
             if (closest) removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
             removeClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
             items.forEach(function(el) {
                 restoreStyle(el, [
                     'position',
+                    'box-sizing',
+                    'overflow',
                     'top',
                     'left',
                     'width',
