@@ -19,13 +19,13 @@ else
 }('undefined' !== typeof self ? self : this, 'AreaSortable', function(undef) {
 "use strict";
 
-var VERSION = '1.0.0',
+var VERSION = '1.0.0', DOC = window.document,
     $ = '$dndSortable',
     VERTICAL = 1, HORIZONTAL = 2,
     UNRESTRICTED = VERTICAL + HORIZONTAL,
     stdMath = Math, Str = String,
     hasProp = Object.prototype.hasOwnProperty,
-    trim_re = /^\s+|\s+$/g,
+    trim_re = /^\s+|\s+$/g, mouse_evt = /mousedown|pointerdown/,
     trim = Str.prototype.trim
         ? function(s) {return s.trim();}
         : function(s) {return s.replace(trim_re, '');}/*,
@@ -57,6 +57,27 @@ function removeClass(el, className)
 {
     if (el.classList) el.classList.remove(className);
     else el.className = trim((' ' + el.className + ' ').replace(' ' + className + ' ', ' '));
+}
+function addEvent(target, event, handler, capture)
+{
+    target.addEventListener(event, handler, !!capture);
+}
+function removeEvent(target, event, handler, capture)
+{
+    target.removeEventListener(event, handler, !!capture);
+}
+function elementsAt(x, y)
+{
+    return DOC.elementsFromPoint(x, y);
+}
+function closestElement(el, className)
+{
+    if (el.closest) return el.closest('.' + className);
+    while (el)
+    {
+        if (hasClass(el, className)) return el;
+        el = el.parentNode;
+    }
 }
 function throttle(f, limit)
 {
@@ -173,18 +194,19 @@ function animate(el, ms, offset)
 {
     if (0 < ms)
     {
+        if (el[$].animation) el[$].animation.stop();
         el.style.transition = 'none';
         el.style.transform = 'translate3d('+Str(-(offset.left || 0))+'px,'+Str(-(offset.top || 0))+'px,0)';
         repaint(el);
-        var trs = 'all '+Str(ms)+'ms', trf = 'translate3d(0,0,0)';
+        var trs = 'transform '+Str(ms)+'ms', trf = 'translate3d(0,0,0)';
         el.style.transform = trf;
         el.style.transition = trs;
-        var stop = function() {
+        var stop = function stop() {
             if (time) clearTimeout(time);
             time = null;
+            if (el[$] && el[$].animation && (stop === el[$].animation.stop)) el[$].animation = null;
             if (el.style.transition === trs) el.style.transition = 'none';
             if (el.style.transform === trf) el.style.transform = 'none';
-            el[$].animation = null;
             return el;
         }, time = setTimeout(stop, ms);
         el[$].animation = {stop: stop};
@@ -378,7 +400,7 @@ function setup(self, TYPE)
     var dragStart = function(e) {
         if (isDraggingStarted) return;
         // not with right click
-        if (/mousedown|pointerdown/.test(e.type) && 0 !== e.button) return;
+        if (mouse_evt.test(e.type) && (0 !== e.button)) return;
 
         clear();
 
@@ -392,7 +414,7 @@ function setup(self, TYPE)
             return;
         }
 
-        dragged = handler.closest('.'+(self.opts.item || 'dnd-sortable-item'));
+        dragged = closestElement(handler, self.opts.item || 'dnd-sortable-item');
         if (!dragged)
         {
             clear();
@@ -407,61 +429,14 @@ function setup(self, TYPE)
         }
 
         isDraggingStarted = true;
-
         e.preventDefault();
         e.stopPropagation && e.stopPropagation();
         e.stopImmediatePropagation && e.stopImmediatePropagation();
 
-        parentRect = parent.getBoundingClientRect();
-        parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
-        items = [].map.call(parent.children, function(el, index) {
-            var r = el.getBoundingClientRect();
-            el[$] = {
-                index: index,
-                rect: {
-                    top: r.top,
-                    left: r.left,
-                    width: r.width,
-                    height: r.height,
-                    prev: {}
-                },
-                style: storeStyle(el, [
-                    'position',
-                    'box-sizing',
-                    'overflow',
-                    'top',
-                    'left',
-                    'width',
-                    'height',
-                    'transform',
-                    'transition'
-                ])
-            };
-            return el;
-        });
-        if (items.length)
-        {
-            first = items[0];
-            last = items[items.length-1];
-        }
-        addClass(parent, self.opts.activeArea || 'dnd-sortable-area');
-        parent.style.boxSizing = 'border-box';
-        parent.style.width = Str(parentRect.width) + 'px';
-        parent.style.height = Str(parentRect.height) + 'px';
-        dragged.draggable = false; // disable native drag
-        addClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
-        items.forEach(function(el) {
-            el.style.position = 'absolute';
-            el.style.boxSizing = 'border-box';
-            el.style.overflow = 'hidden';
-            el.style.top = Str(el[$].rect.top-parentRect.top)+'px';
-            el.style.left = Str(el[$].rect.left-parentRect.left)+'px';
-            el.style.width = Str(el[$].rect.width)+'px';
-            el.style.height = Str(el[$].rect.height)+'px';
-        });
-
         if ('function' === typeof self.opts.onStart)
             self.opts.onStart(dragged);
+
+        prepare();
 
         lastX = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
         lastY = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
@@ -477,16 +452,11 @@ function setup(self, TYPE)
         {
             dragged.style[coord] = Str(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0)+'px';
         }
-
-        document.addEventListener('touchmove', dragMove, false);
-        document.addEventListener('touchend', dragEnd, false);
-        document.addEventListener('touchcancel', dragEnd, false);
-        document.addEventListener('mousemove', dragMove, false);
-        document.addEventListener('mouseup', dragEnd, false);
     };
 
     var dragMove = throttle(function(e) {
         var hovered, p = 0.0, Y, X, deltaX, deltaY, delta,
+            scrollX = window.scrollX, scrollY = window.scrollY, centerX, centerY,
             c = 'top', s = 'height', zc = 'left', zs = 'width', z, d = 50;
 
         if (VERTICAL === TYPE)
@@ -500,21 +470,28 @@ function setup(self, TYPE)
         deltaX = X - lastX;
         deltaY = Y - lastY;
         dragged[$].r = dragged.getBoundingClientRect();
-
-        hovered = document.elementsFromPoint(X, Y).reduce(function(candidate, el) {
-            if ((el !== dragged) && (el.parentNode === parent))
-            {
-                var pp = intersect(dragged, el, coord, size);
-                if (pp > p)
-                {
-                    p = pp;
-                    candidate = el;
-                }
-            }
-            return candidate;
-        }, null);
-
+        centerX = scrollX + dragged[$].r.left + dragged[$].r.width / 2;
+        centerY = scrollY + dragged[$].r.top + dragged[$].r.height / 2;
         z = dragged[$].r[zc];
+
+        hovered = elementsAt(X, Y) // current mouse pos
+                .concat(VERTICAL === TYPE ? [] : elementsAt(scrollX + dragged[$].r.left + 2, centerY)) // left side
+                .concat(VERTICAL === TYPE ? [] : elementsAt(scrollX + dragged[$].r.right - 2, centerY)) // right side
+                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, scrollY + dragged[$].r.top + 2)) // top side
+                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, scrollY + dragged[$].r.bottom - 2)) // bottom side
+                .reduce(function(candidate, el) {
+                    if ((el !== dragged) && (el.parentNode === parent))
+                    {
+                        var pp = intersect(dragged, el, coord, size);
+                        if (pp > p)
+                        {
+                            p = pp;
+                            candidate = el;
+                        }
+                    }
+                    return candidate;
+                }, null);
+
 
         if (UNRESTRICTED === TYPE)
         {
@@ -602,10 +579,10 @@ function setup(self, TYPE)
                 if (p >= 0.3)
                 {
                     addClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
-                    if (p > 0.5 && !moved)
+                    if ((p > 0.5) && !moved)
                     {
                         moved = true;
-                        move(dragged, closest, dir, self.opts.animationMs);
+                        move(dragged, closest, dir, self.opts.animationMs || 0);
                         //removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
                         //overlap = 0; closest = null;
                     }
@@ -624,15 +601,71 @@ function setup(self, TYPE)
         }
     }, 60);
 
+    var prepare = function() {
+        parentRect = parent.getBoundingClientRect();
+        parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
+        items = [].map.call(parent.children, function(el, index) {
+            var r = el.getBoundingClientRect();
+            el[$] = {
+                index: index,
+                rect: {
+                    top: r.top,
+                    left: r.left,
+                    width: r.width,
+                    height: r.height,
+                    prev: {}
+                },
+                r: null,
+                style: storeStyle(el, [
+                    'position',
+                    'box-sizing',
+                    'overflow',
+                    'top',
+                    'left',
+                    'width',
+                    'height',
+                    'transform',
+                    'transition'
+                ]),
+                animation: null
+            };
+            return el;
+        });
+        if (items.length)
+        {
+            first = items[0];
+            last = items[items.length-1];
+        }
+        addClass(parent, self.opts.activeArea || 'dnd-sortable-area');
+        parent.style.boxSizing = 'border-box';
+        parent.style.width = Str(parentRect.width) + 'px';
+        parent.style.height = Str(parentRect.height) + 'px';
+        dragged.draggable = false; // disable native drag
+        addClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
+        items.forEach(function(el) {
+            el.style.position = 'absolute';
+            el.style.boxSizing = 'border-box';
+            el.style.overflow = 'hidden';
+            el.style.top = Str(el[$].rect.top-parentRect.top)+'px';
+            el.style.left = Str(el[$].rect.left-parentRect.left)+'px';
+            el.style.width = Str(el[$].rect.width)+'px';
+            el.style.height = Str(el[$].rect.height)+'px';
+        });
+        addEvent(DOC, 'touchmove', dragMove, false);
+        addEvent(DOC, 'touchend', dragEnd, false);
+        addEvent(DOC, 'touchcancel', dragEnd, false);
+        addEvent(DOC, 'mousemove', dragMove, false);
+        addEvent(DOC, 'mouseup', dragEnd, false);
+    };
+
     var restore = function() {
         if (isDraggingStarted)
         {
-            // Remove the handlers of `mousemove` and `mouseup`
-            document.removeEventListener('touchmove', dragMove, false);
-            document.removeEventListener('touchend', dragEnd, false);
-            document.removeEventListener('touchcancel', dragEnd, false);
-            document.removeEventListener('mousemove', dragMove, false);
-            document.removeEventListener('mouseup', dragEnd, false);
+            removeEvent(DOC, 'touchmove', dragMove, false);
+            removeEvent(DOC, 'touchend', dragEnd, false);
+            removeEvent(DOC, 'touchcancel', dragEnd, false);
+            removeEvent(DOC, 'mousemove', dragMove, false);
+            removeEvent(DOC, 'mouseup', dragEnd, false);
             removeClass(parent, self.opts.activeArea || 'dnd-sortable-area');
             restoreStyle(parent, ['width', 'height', 'box-sizing'], parentStyle);
             if (closest) removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
@@ -668,8 +701,8 @@ function setup(self, TYPE)
         {
             attached = true;
             clear();
-            document.addEventListener('touchstart', dragStart, true);
-            document.addEventListener('mousedown', dragStart, true);
+            addEvent(DOC, 'touchstart', dragStart, true);
+            addEvent(DOC, 'mousedown', dragStart, true);
         }
     };
 
@@ -677,8 +710,8 @@ function setup(self, TYPE)
         if (attached)
         {
             attached = false;
-            document.removeEventListener('touchstart', dragStart, true);
-            document.removeEventListener('mousedown', dragStart, true);
+            removeEvent(DOC, 'touchstart', dragStart, true);
+            removeEvent(DOC, 'mousedown', dragStart, true);
             restore();
             clear();
         }

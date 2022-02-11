@@ -9,7 +9,7 @@ Simple JavaScript class for handling drag-and-drop sortable items of an area (De
 [![screenshot](/screenshot.png)](https://foo123.github.io/examples/area-sortable/)
 
 
-**Live Example**
+**Live Demo**
 
-* [Simple Demo](https://foo123.github.io/examples/area-sortable/)
+* [Live Demo](https://foo123.github.io/examples/area-sortable/)
 
