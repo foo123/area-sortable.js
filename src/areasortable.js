@@ -79,13 +79,13 @@ function removeClass(el, className)
 function addEvent(target, event, handler, options)
 {
     if (target.attachEvent) target.attachEvent('on' + event, handler);
-    else target.addEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) && hasProp.call(options, 'capture') ? !!options.capture : !!options));
+    else target.addEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
 }
 function removeEvent(target, event, handler, options)
 {
     // if (el.removeEventListener) not working in IE11
     if (target.detachEvent) target.detachEvent('on' + event, handler);
-    else target.removeEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) && hasProp.call(options, 'capture') ? !!options.capture : !!options));
+    else target.removeEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
 }
 function computedStyle(el)
 {
