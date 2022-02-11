@@ -3,7 +3,7 @@
 Simple JavaScript class for handling drag-and-drop sortable items of an area (Desktop and Mobile).
 
 
-**version 1.0.0** (10 kB minified)
+**version 1.0.0** (11 kB minified)
 
 
 [![screenshot](/screenshot.png)](https://foo123.github.io/examples/area-sortable/)
