@@ -50,18 +50,21 @@ h1 {
     color: #343434;
     vertical-align: top;
     padding: 8px;
-    margin: 4px;
+    margin: 0;
     background: #fff;
 }
 #c1.container > .dnd-sortable-item {
     cursor: ns-resize;
+    margin: 4px 0;
 }
 #c2.container > .dnd-sortable-item {
     display: inline-block;
-    width: 12%;
+    width: calc(15% - 8px);
     cursor: ew-resize;
+    margin: 0 4px;
 }
 #c3.container > .dnd-sortable-item {
+    margin: 4px;
     display: inline-block;
     width: calc(25% - 8px);
     cursor: move;
@@ -71,14 +74,14 @@ h1 {
     line-height: 90px;
 }
 #c2.container > .dnd-sortable-item.wide {
-    width: 16%;
+    width: calc(20% - 8px);
 }
 #c3.container > .dnd-sortable-item.tall {
     font-size: 46px;
     line-height: 90px;
 }
 #c3.container > .dnd-sortable-item.wide {
-    width: 42%;
+    width: calc(35% - 8px);
 }
 .dnd-sortable-item.dnd-sortable-closest {
     border-color: #00fa00;
@@ -111,10 +114,9 @@ h1 {
 <ul id="c2" class="container">
 <li id="A2" class="dnd-sortable-item dnd-sortable-handle">A</li>
 <li id="B2" class="dnd-sortable-item dnd-sortable-handle">B</li>
-<li id="C2" class="dnd-sortable-item dnd-sortable-handle">C</li>
-<li id="D2" class="dnd-sortable-item dnd-sortable-handle wide">D</li>
+<li id="C2" class="dnd-sortable-item dnd-sortable-handle wide">C</li>
+<li id="D2" class="dnd-sortable-item dnd-sortable-handle">D</li>
 <li id="E2" class="dnd-sortable-item dnd-sortable-handle">E</li>
-<li id="F2" class="dnd-sortable-item dnd-sortable-handle">F</li>
 </ul>
 
 <ul id="c3" class="container">
@@ -151,24 +153,25 @@ function enableScroll()
 
 let instance1 = AreaSortable('vertical', {
     // all options
-    container: 'c1' // container id
+    container: 'c1' // container element or id
     ,activeArea: 'dnd-sortable-area' // default
     ,handle: 'dnd-sortable-handle' // default
     ,item: 'dnd-sortable-item' // default
     ,activeItem: 'dnd-sortable-dragged' // default
     ,closestItem: 'dnd-sortable-closest' // default
-    ,animationMs: 180
+    ,animationMs: 180 // default 0
+    ,itemFilter: function(item){return item;} // default
     ,onStart: disableScroll
     ,onEnd: enableScroll
 });
 let instance2 = AreaSortable('horizontal', {
-    container: 'c2' // container id
+    container: 'c2' // container element or id
     ,animationMs: 180
     ,onStart: disableScroll
     ,onEnd: enableScroll
 });
 let instance3 = AreaSortable('unrestricted', {
-    container: 'c3' // container id
+    container: 'c3' // container element or id
     ,animationMs: 180
     ,onStart: disableScroll
     ,onEnd: enableScroll

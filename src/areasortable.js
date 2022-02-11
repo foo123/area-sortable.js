@@ -60,11 +60,14 @@ function removeClass(el, className)
 }
 function addEvent(target, event, handler, capture)
 {
-    target.addEventListener(event, handler, !!capture);
+    if (target.attachEvent) target.attachEvent('on' + event, handler);
+    else target.addEventListener(event, handler, !!capture);
 }
 function removeEvent(target, event, handler, capture)
 {
-    target.removeEventListener(event, handler, !!capture);
+    // if (el.removeEventListener) not working in IE11
+    if (target.detachEvent) target.detachEvent('on' + event, handler);
+    else target.removeEventListener(event, handler, !!capture);
 }
 function elementsAt(x, y)
 {
@@ -195,29 +198,37 @@ function animate(el, ms, offset)
     if (0 < ms)
     {
         if (el[$].animation) el[$].animation.stop();
+        var trs = 'transform ' + Str(ms) + 'ms',
+            trf = 'translate3d(0,0,0)',
+            time = null,
+            stop = function stop() {
+                if (time) clearTimeout(time);
+                time = null;
+                if (el[$] && el[$].animation && (stop === el[$].animation.stop)) el[$].animation = null;
+                if (el.style.transform === trf && el.style.transition === trs)
+                {
+                    el.style.transition = 'none';
+                    el.style.transform = 'none';
+                }
+                return el;
+            }
+        ;
         el.style.transition = 'none';
-        el.style.transform = 'translate3d('+Str(-(offset.left || 0))+'px,'+Str(-(offset.top || 0))+'px,0)';
+        el.style.transform = 'translate3d(' + Str(-(offset.left || 0)) + 'px,' + Str(-(offset.top || 0)) + 'px,0)';
         repaint(el);
-        var trs = 'transform '+Str(ms)+'ms', trf = 'translate3d(0,0,0)';
         el.style.transform = trf;
         el.style.transition = trs;
-        var stop = function stop() {
-            if (time) clearTimeout(time);
-            time = null;
-            if (el[$] && el[$].animation && (stop === el[$].animation.stop)) el[$].animation = null;
-            if (el.style.transition === trs) el.style.transition = 'none';
-            if (el.style.transform === trf) el.style.transform = 'none';
-            return el;
-        }, time = setTimeout(stop, ms);
+        time = setTimeout(stop, ms);
         el[$].animation = {stop: stop};
     }
+    return el;
 }
 
 function setup(self, TYPE)
 {
     var dragged, handler, closest, first, last,
         parent, items, parentRect, parentStyle,
-        X0, Y0, lastX, lastY, dir, overlap, moved, move, intersect,
+        X0, Y0, scrollX0, scrollY0, lastX, lastY, dir, overlap, moved, move, intersect,
         isDraggingStarted = false, attached = false,
         size = HORIZONTAL === TYPE ? 'width' : 'height',
         coord = HORIZONTAL === TYPE ? 'left' : 'top'
@@ -398,7 +409,7 @@ function setup(self, TYPE)
     intersect = UNRESTRICTED === TYPE ? intersect2D : intersect1D;
 
     var dragStart = function(e) {
-        if (isDraggingStarted) return;
+        if (isDraggingStarted || !self.opts.container) return;
         // not with right click
         if (mouse_evt.test(e.type) && (0 !== e.button)) return;
 
@@ -422,22 +433,40 @@ function setup(self, TYPE)
         }
 
         parent = dragged.parentNode;
-        if (!parent || (parent.id !== self.opts.container))
+        if (
+            !parent
+            || (('string' === typeof(self.opts.container))
+            && (parent.id !== self.opts.container))
+            || (('string' !== typeof(self.opts.container))
+            && (parent !== self.opts.container))
+        )
         {
             clear();
             return;
         }
 
-        isDraggingStarted = true;
-        e.preventDefault();
-        e.stopPropagation && e.stopPropagation();
-        e.stopImmediatePropagation && e.stopImmediatePropagation();
-
         if ('function' === typeof self.opts.onStart)
             self.opts.onStart(dragged);
 
+        if ('function' === typeof self.opts.itemFilter)
+        {
+            dragged = self.opts.itemFilter(dragged);
+            if (!dragged)
+            {
+                clear();
+                return;
+            }
+        }
+
+        isDraggingStarted = true;
+        e.preventDefault && e.preventDefault();
+        e.stopPropagation && e.stopPropagation();
+        e.stopImmediatePropagation && e.stopImmediatePropagation();
+
         prepare();
 
+        scrollX0 = window.scrollX;
+        scrollY0 = window.scrollY;
         lastX = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
         lastY = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
         X0 = lastX + parentRect.left - dragged[$].rect.left;
@@ -469,16 +498,18 @@ function setup(self, TYPE)
         Y = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
         deltaX = X - lastX;
         deltaY = Y - lastY;
-        dragged[$].r = dragged.getBoundingClientRect();
+        //dragged[$].r = dragged.getBoundingClientRect();
+        dragged[$].r.top = Y - Y0 - (scrollY - scrollY0) +  parentRect.top;
+        dragged[$].r.left = X - X0 - (scrollX - scrollX0) +  parentRect.left;
         centerX = scrollX + dragged[$].r.left + dragged[$].r.width / 2;
         centerY = scrollY + dragged[$].r.top + dragged[$].r.height / 2;
         z = dragged[$].r[zc];
 
         hovered = elementsAt(X, Y) // current mouse pos
                 .concat(VERTICAL === TYPE ? [] : elementsAt(scrollX + dragged[$].r.left + 2, centerY)) // left side
-                .concat(VERTICAL === TYPE ? [] : elementsAt(scrollX + dragged[$].r.right - 2, centerY)) // right side
+                .concat(VERTICAL === TYPE ? [] : elementsAt(scrollX + dragged[$].r.left + dragged[$].r.width - 2, centerY)) // right side
                 .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, scrollY + dragged[$].r.top + 2)) // top side
-                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, scrollY + dragged[$].r.bottom - 2)) // bottom side
+                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, scrollY + dragged[$].r.top + dragged[$].r.height - 2)) // bottom side
                 .reduce(function(candidate, el) {
                     if ((el !== dragged) && (el.parentNode === parent))
                     {
@@ -605,21 +636,35 @@ function setup(self, TYPE)
         parentRect = parent.getBoundingClientRect();
         parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
         items = [].map.call(parent.children, function(el, index) {
-            var r = el.getBoundingClientRect();
+            var r = el.getBoundingClientRect(),
+                style = window.getComputedStyle(el),
+                marginTop = parseInt(style.marginTop) || 0,
+                marginLeft = parseInt(style.marginLeft) || 0
+            ;
             el[$] = {
                 index: index,
                 rect: {
-                    top: r.top,
-                    left: r.left,
+                    top: r.top - marginTop,
+                    left: r.left - marginLeft,
                     width: r.width,
                     height: r.height,
                     prev: {}
                 },
-                r: null,
+                r: {
+                    top: r.top,
+                    left: r.left,
+                    width: r.width,
+                    height: r.height
+                },
                 style: storeStyle(el, [
                     'position',
                     'box-sizing',
                     'overflow',
+                    'margin',
+                    'margin-top',
+                    'margin-left',
+                    'margin-right',
+                    'margin-bottom',
                     'top',
                     'left',
                     'width',
@@ -675,6 +720,11 @@ function setup(self, TYPE)
                     'position',
                     'box-sizing',
                     'overflow',
+                    'margin',
+                    'margin-top',
+                    'margin-left',
+                    'margin-right',
+                    'margin-bottom',
                     'top',
                     'left',
                     'width',
