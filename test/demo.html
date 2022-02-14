@@ -63,6 +63,7 @@ h1 {
     cursor: ew-resize;
     margin: 0 4px;
 }
+#c4.container > .dnd-sortable-item,
 #c3.container > .dnd-sortable-item {
     margin: 4px;
     display: inline-block;
@@ -76,11 +77,11 @@ h1 {
 #c2.container > .dnd-sortable-item.wide {
     width: calc(25% - 8px);
 }
-#c3.container > .dnd-sortable-item.tall {
+#c4.container > .dnd-sortable-item.tall {
     font-size: 46px;
     line-height: 90px;
 }
-#c3.container > .dnd-sortable-item.wide {
+#c4.container > .dnd-sortable-item.wide {
     width: calc(35% - 8px);
 }
 .dnd-sortable-item.dnd-sortable-closest {
@@ -93,6 +94,11 @@ h1 {
     z-index: 10;
     opacity: 0.7;
     box-shadow: 2px 2px 2px 1px rgba(0, 0, 0, 0.4);
+}
+.dnd-sortable-placeholder {
+    border: 1px dotted #121212;
+    background: #CC892E;
+    opacity: 0.6;
 }
 </style>
 
@@ -132,6 +138,17 @@ h1 {
 <li id="i11" class="dnd-sortable-item dnd-sortable-handle">11</li>
 </ul>
 
+<ul id="c4" class="container">
+<li id="f1" class="dnd-sortable-item dnd-sortable-handle">1</li>
+<li id="f2" class="dnd-sortable-item dnd-sortable-handle" >2</li>
+<li id="f3" class="dnd-sortable-item dnd-sortable-handle tall">3</li>
+<li id="f4" class="dnd-sortable-item dnd-sortable-handle">4</li>
+<li id="f5" class="dnd-sortable-item dnd-sortable-handle wide" style="vertical-align:bottom;">5</li>
+<li id="f6" class="dnd-sortable-item dnd-sortable-handle tall wide">6</li>
+<li id="f7" class="dnd-sortable-item dnd-sortable-handle" style="vertical-align:bottom;">7</li>
+<li id="f8" class="dnd-sortable-item dnd-sortable-handle">8</li>
+</ul>
+
 <script src="../src/areasortable.js"></script>
 <script>
 document.getElementById('ver').textContent = AreaSortable.VERSION;
@@ -139,8 +156,8 @@ document.getElementById('ver').textContent = AreaSortable.VERSION;
 function disableScroll()
 {
     // Get the current page scroll position
-    var scrollTop = window.pageYOffset || document.documentElement.scrollTop,
-        scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+    var scrollTop = window.pageYOffset || document.documentElement.scrollTop || 0,
+        scrollLeft = window.pageXOffset || document.documentElement.scrollLeft || 0;
 
     // if any scroll is attempted, set this to the previous value
     window.onscroll = function() {window.scrollTo(scrollLeft, scrollTop);};
@@ -156,30 +173,38 @@ let instance1 = AreaSortable('vertical', {
     ,activeArea: 'dnd-sortable-area' // default
     ,handle: 'dnd-sortable-handle' // default
     ,item: 'dnd-sortable-item' // default
+    ,placeholder: 'dnd-sortable-placeholder' // default
     ,activeItem: 'dnd-sortable-dragged' // default
     ,closestItem: 'dnd-sortable-closest' // default
     ,animationMs: 180 // default 0
     ,itemFilter: function(item){return item;} // default
-    ,onStart: disableScroll
-    ,onEnd: enableScroll
+    ,onStart: function(item){disableScroll();}
+    ,onEnd: function(item){enableScroll();}
 });
 let instance2 = AreaSortable('horizontal', {
     container: 'c2' // container element or id
     ,animationMs: 180
-    ,onStart: disableScroll
-    ,onEnd: enableScroll
+    ,onStart: function(item){disableScroll();}
+    ,onEnd: function(item){enableScroll();}
 });
 let instance3 = AreaSortable('unrestricted', {
     container: 'c3' // container element or id
     ,animationMs: 180
-    ,onStart: disableScroll
-    ,onEnd: enableScroll
+    ,onStart: function(item){disableScroll();}
+    ,onEnd: function(item){enableScroll();}
+});
+let instance4 = AreaSortable('unrestricted', {
+    container: 'c4' // container element or id
+    ,animationMs: 180
+    ,onStart: function(item){disableScroll();}
+    ,onEnd: function(item){enableScroll();}
 });
 /*
 // dispose
 instance1.dispose();
 instance2.dispose();
 instance3.dispose();
+instance4.dispose();
 */
 </script>
 </body>
