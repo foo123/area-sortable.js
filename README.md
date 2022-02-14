@@ -13,3 +13,9 @@ Simple JavaScript class for handling drag-and-drop sortable items of an area (De
 
 * [Live Demo](https://foo123.github.io/examples/area-sortable/)
 
+
+**Todo**
+
+* handle asymmetric items **[ALMOST DONE]**
+* handle scrolling when sortable area is partially hidden (TODO)
+
