@@ -1,6 +1,6 @@
 /**
 *  area-sortable.js
-*  A simple js class to sort elements of an area using drag-and-drop (desktop and mobile)
+*  A simple js class to sort elements of an area smoothly using drag-and-drop (desktop and mobile)
 *  @VERSION: 1.1.0
 *
 *  https://github.com/foo123/area-sortable.js
@@ -20,7 +20,7 @@ else
 "use strict";
 
 var VERSION = '1.1.0', DOC = window.document,
-    $ = '$dndSortable', RECT = 'rect', STYLE = 'style',
+    $ = '$areaSortable', RECT = 'rect', STYLE = 'style',
     MARGIN = 'margin', PADDING = 'padding',
     LEFT = 'left', RIGHT = 'right', WIDTH = 'width',
     TOP = 'top', BOTTOM = 'bottom', HEIGHT = 'height',
@@ -33,7 +33,7 @@ var VERSION = '1.1.0', DOC = window.document,
     trim = Str.prototype.trim
         ? function(s) {return s.trim();}
         : function(s) {return s.replace(trim_re, '');},
-    eventOptionsSupported = hasEventOptions()
+    eventOptionsSupported = null
 ;
 
 // add custom property to Element.prototype to avoid browser issues
@@ -79,11 +79,13 @@ function removeClass(el, className)
 }
 function addEvent(target, event, handler, options)
 {
+    if (null == eventOptionsSupported) eventOptionsSupported = hasEventOptions();
     if (target.attachEvent) target.attachEvent('on' + event, handler);
     else target.addEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
 }
 function removeEvent(target, event, handler, options)
 {
+    if (null == eventOptionsSupported) eventOptionsSupported = hasEventOptions();
     // if (el.removeEventListener) not working in IE11
     if (target.detachEvent) target.detachEvent('on' + event, handler);
     else target.removeEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
@@ -256,12 +258,12 @@ function intersect2D(nodeA, nodeB, axis, size)
         )
     );
 }
-function updateIndex(el, limit, dir)
+function updateIndex(el, limit, dir, placeholder)
 {
     el = el[(0 > dir ? NEXT : PREV)];
     while (el)
     {
-        el[$].index += (0 > dir ? 1 : -1);
+        if (el !== placeholder) el[$].index += (0 > dir ? 1 : -1);
         if (el === limit) return;
         el = el[(0 > dir ? NEXT : PREV)];
     }
@@ -270,7 +272,7 @@ function lineStart(el, line)
 {
     var next;
     //while ((el[$].line < line) && (next = el[NEXT])) el = next;
-    while ((next = el[PREV]) && (next[$].line >= line)) el = next;
+    while ((next = el[PREV]) && (next[$] && next[$].line >= line)) el = next;
     return el;
 }
 function layout1(el, line, parent, movedNode, placeholder, axis, size, axis_opposite)
@@ -282,21 +284,24 @@ function layout1(el, line, parent, movedNode, placeholder, axis, size, axis_oppo
     var runningEnd = 0, end;
     while (el)
     {
-        if (el[$].animation) el[$].animation.stop();
-        end = el[$][MARGIN][axis] + el[$][RECT][size] + el[$][MARGIN][axis_opposite];
-        if ((0 < runningEnd) && (parent[PADDING][axis] + runningEnd + end + parent[PADDING][axis_opposite] > parent[size]))
+        if (el !== placeholder)
         {
-            line++;
-            runningEnd = 0;
+            if (el[$] && el[$].animation) el[$].animation.stop();
+            end = el[$][MARGIN][axis] + el[$][RECT][size] + el[$][MARGIN][axis_opposite];
+            if ((0 < runningEnd) && (parent[PADDING][axis] + runningEnd + end + parent[PADDING][axis_opposite] > parent[size]))
+            {
+                line++;
+                runningEnd = 0;
+            }
+            el[$].line = line;
+            el[$].prev[axis] = el[$][RECT][axis];
+            el[$][RECT][axis] = parent[axis] + parent[PADDING][axis] + runningEnd + el[$][MARGIN][axis];
+            if (el === movedNode)
+                placeholder[STYLE][axis] = Str(el[$][RECT][axis]/* - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
+            else
+                el[STYLE][axis] = Str(el[$][RECT][axis] - el[$][MARGIN][axis] - parent[axis]) + 'px';
+            runningEnd += end;
         }
-        el[$].line = line;
-        el[$].prev[axis] = el[$][RECT][axis];
-        el[$][RECT][axis] = parent[axis] + parent[PADDING][axis] + runningEnd + el[$][MARGIN][axis];
-        if (el === movedNode)
-            placeholder[STYLE][axis] = Str(placeholder[$].S[axis] + el[$][RECT][axis]) + 'px';
-        else
-            el[STYLE][axis] = Str(el[$][RECT][axis] - el[$][MARGIN][axis] - parent[axis]) + 'px';
-        runningEnd += end;
         el = el[NEXT];
     }
 }
@@ -309,17 +314,20 @@ function layout2(el, lines, parent, movedNode, placeholder, axis, size, axis_opp
     var o = el, currentLine = el[$].line, lineSize = 0, line, lineTop, end;
     while (el)
     {
-        line = el[$].line;
-        end = el[$][MARGIN][axis] + el[$][RECT][size] + el[$][MARGIN][axis_opposite];
-        if (line === currentLine)
+        if (el !== placeholder)
         {
-            lineSize = stdMath.max(lineSize, end);
-        }
-        else
-        {
-            lines[line] = lines[currentLine] + lineSize;
-            currentLine = line;
-            lineSize = end;
+            line = el[$].line;
+            end = el[$][MARGIN][axis] + el[$][RECT][size] + el[$][MARGIN][axis_opposite];
+            if (line === currentLine)
+            {
+                lineSize = stdMath.max(lineSize, end);
+            }
+            else
+            {
+                lines[line] = lines[currentLine] + lineSize;
+                currentLine = line;
+                lineSize = end;
+            }
         }
         el = el[NEXT];
     }
@@ -327,24 +335,27 @@ function layout2(el, lines, parent, movedNode, placeholder, axis, size, axis_opp
     el = o;
     while (el)
     {
-        line = el[$].line;
-        lineTop = lines[line];
-        el[$].prev[axis] = el[$][RECT][axis];
-        switch(el[$].$.verticalAlign)
+        if (el !== placeholder)
         {
-            // TODO: support more vertical align options
-            case 'bottom':
-                el[$][RECT][axis] = parent[axis] + lines[line + 1] - el[$][RECT][size] - el[$][MARGIN][axis_opposite];
-                break;
-            case 'top':
-            default:
-                el[$][RECT][axis] = parent[axis] + lineTop + el[$][MARGIN][axis];
-                break;
+            line = el[$].line;
+            lineTop = lines[line];
+            el[$].prev[axis] = el[$][RECT][axis];
+            switch(el[$].$.verticalAlign)
+            {
+                // TODO: support more vertical align options
+                case 'bottom':
+                    el[$][RECT][axis] = parent[axis] + lines[line + 1] - el[$][RECT][size] - el[$][MARGIN][axis_opposite];
+                    break;
+                case 'top':
+                default:
+                    el[$][RECT][axis] = parent[axis] + lineTop + el[$][MARGIN][axis];
+                    break;
+            }
+            if (el === movedNode)
+                placeholder[STYLE][axis] = Str(el[$][RECT][axis]/* - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
+            else
+                el[STYLE][axis] = Str(el[$][RECT][axis] - el[$][MARGIN][axis] - parent[axis]) + 'px';
         }
-        if (el === movedNode)
-            placeholder[STYLE][axis] = Str(placeholder[$].S[axis] + el[$][RECT][axis]) + 'px';
-        else
-            el[STYLE][axis] = Str(el[$][RECT][axis] - el[$][MARGIN][axis] - parent[axis]) + 'px';
         el = el[NEXT];
     }
 }
@@ -379,7 +390,8 @@ function setup(self, TYPE)
     };
 
     var prepare = function() {
-        var line = 0, runningEnd = 0, mrg = 0, axis = LEFT, size = WIDTH, axis_opposite = RIGHT /*, tag = (parent.tagName || '').toLowerCase()*/;
+        var line = 0, runningEnd = 0, mrg = 0, axis = LEFT, size = WIDTH, axis_opposite = RIGHT,
+            tag = (parent.tagName || '').toLowerCase();
 
         parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
         parentComputedStyle = computedStyle(parent);
@@ -484,8 +496,7 @@ function setup(self, TYPE)
             )
                 hasSymmetricItems = false;
         });
-        placeholder = DOC.createElement('div');
-        DOC.body.appendChild(placeholder);
+        placeholder = DOC.createElement('ul' === tag || 'ol' === tag ? 'li' : ('tr' === tag ? 'td' : ('tbody' === tag || 'thead' === tag || 'tfoot' === tag || 'table' === tag ? 'tr' : 'span')));
         addClass(placeholder, self.opts.placeholder || 'dnd-sortable-placeholder');
         placeholder[STYLE].position = 'absolute';
         placeholder[STYLE].display = 'block';
@@ -553,20 +564,42 @@ function setup(self, TYPE)
         }
     };
 
+    var moveTo = function(movedNode, refNode, dir) {
+        if (0 > dir)
+        {
+            // Move `movedNode` before the `refNode`
+            if (first === refNode) first = movedNode;
+            if (last === movedNode) last = placeholder[PREV]; // placeholder is right before movedNode
+            parent.insertBefore(movedNode, refNode);
+        }
+        else if (0 < dir)
+        {
+            // Move `movedNode` after the `refNode`
+            if (first === movedNode) first = movedNode[NEXT];
+            if (refNode[NEXT])
+            {
+                parent.insertBefore(movedNode, refNode[NEXT]);
+            }
+            else
+            {
+                parent.appendChild(movedNode);
+                last = movedNode;
+            }
+        }
+        movedNode[$].index = refNode[$].index;
+        parent.insertBefore(placeholder, movedNode);
+    };
+
     var move1D = function(movedNode, refNode, dir, ms) {
         var target = refNode, next, limitNode, offset, delta = 0, margin = 0;
         if (0 > dir)
         {
             limitNode = movedNode[NEXT];
-            // Move `movedNode` before the `refNode`
-            if (first === refNode) first = movedNode;
-            if (last === movedNode) last = movedNode[PREV];
-            parent.insertBefore(movedNode, refNode);
-            movedNode[$].index = refNode[$].index;
+            moveTo(movedNode, refNode, dir);
             movedNode[$].prev[axis] = movedNode[$][RECT][axis];
             margin = movedNode[$][MARGIN][axis] - refNode[$][MARGIN][axis];
             movedNode[$][RECT][axis] = refNode[$][RECT][axis] + margin;
-            placeholder[STYLE][axis] = Str(placeholder[$].S[axis] + movedNode[$][RECT][axis]) + 'px';
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parentRect[axis]) + 'px';
             delta = movedNode[$][RECT][size] - refNode[$][RECT][size];
             margin += movedNode[$][MARGIN][axis_opposite] - refNode[$][MARGIN][axis_opposite];
             while ((next = refNode[NEXT]) && (next !== limitNode))
@@ -590,18 +623,7 @@ function setup(self, TYPE)
         else if (0 < dir)
         {
             limitNode = movedNode[NEXT];
-            // Move `movedNode` after the `refNode`
-            if (first === movedNode) first = limitNode;
-            if (refNode[NEXT])
-            {
-                parent.insertBefore(movedNode, refNode[NEXT]);
-            }
-            else
-            {
-                parent.appendChild(movedNode);
-                last = movedNode;
-            }
-            movedNode[$].index = refNode[$].index;
+            moveTo(movedNode, refNode, dir);
             refNode = limitNode;
             next = movedNode;
             margin = 0;
@@ -620,9 +642,9 @@ function setup(self, TYPE)
                 next = refNode;
                 refNode = refNode[NEXT];
             }
-            while ((refNode) && (refNode !== movedNode));
+            while ((refNode) && (refNode !== placeholder));
             movedNode[$][RECT][axis] = next[$].prev[axis] + delta + margin - next[$][MARGIN][axis] + movedNode[$][MARGIN][axis];
-            placeholder[STYLE][axis] = Str(placeholder[$].S[axis] + movedNode[$][RECT][axis]) + 'px';
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parentRect[axis]) + 'px';
         }
         offset = {};
         offset[axis] = target[$][RECT][axis] - target[$].prev[axis];
@@ -637,19 +659,15 @@ function setup(self, TYPE)
             if (0 > dir)
             {
                 limitNode = movedNode[NEXT];
-                // Move `movedNode` before the `refNode`
-                if (first === refNode) first = movedNode;
-                if (last === movedNode) last = movedNode[PREV];
-                parent.insertBefore(movedNode, refNode);
-                movedNode[$].index = refNode[$].index;
+                moveTo(movedNode, refNode, dir);
                 movedNode[$].prev.line = movedNode[$].line;
                 movedNode[$].prev[TOP] = movedNode[$][RECT][TOP];
                 movedNode[$].prev[LEFT] = movedNode[$][RECT][LEFT];
                 movedNode[$].line = refNode[$].line;
                 movedNode[$][RECT][TOP] = refNode[$][RECT][TOP];
                 movedNode[$][RECT][LEFT] = refNode[$][RECT][LEFT];
-                placeholder[STYLE][TOP] = Str(placeholder[$].S[TOP] + movedNode[$][RECT][TOP]) + 'px';
-                placeholder[STYLE][LEFT] = Str(placeholder[$].S[LEFT] + movedNode[$][RECT][LEFT]) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parentRect[TOP]) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
                 while ((next = refNode[NEXT]) && (next !== limitNode))
                 {
                     if (refNode[$].animation) refNode[$].animation.stop();
@@ -678,18 +696,7 @@ function setup(self, TYPE)
             else if (0 < dir)
             {
                 limitNode = movedNode[NEXT];
-                // Move `movedNode` after the `refNode`
-                if (first === movedNode) first = limitNode;
-                if (refNode[NEXT])
-                {
-                    parent.insertBefore(movedNode, refNode[NEXT]);
-                }
-                else
-                {
-                    parent.appendChild(movedNode);
-                    last = movedNode;
-                }
-                movedNode[$].index = refNode[$].index;
+                moveTo(movedNode, refNode, dir);
                 refNode = limitNode;
                 next = movedNode;
                 next[$].prev.line = next[$].line;
@@ -710,12 +717,12 @@ function setup(self, TYPE)
                     next = refNode;
                     refNode = refNode[NEXT];
                 }
-                while ((refNode) && (refNode !== movedNode));
+                while ((refNode) && (refNode !== placeholder));
                 movedNode[$].line = next[$].prev.line;
                 movedNode[$][RECT][TOP] = next[$].prev[TOP];
                 movedNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                placeholder[STYLE][TOP] = Str(placeholder[$].S[TOP] + movedNode[$][RECT][TOP]) + 'px';
-                placeholder[STYLE][LEFT] = Str(placeholder[$].S[LEFT] + movedNode[$][RECT][LEFT]) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parentRect[TOP]) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
             }
             animate(target, ms, {
                 top: target[$][RECT][TOP] - target[$].prev[TOP],
@@ -727,31 +734,17 @@ function setup(self, TYPE)
             // general algorithm for asymmetric items
             if (0 > dir)
             {
-                next = movedNode[PREV];
+                next = placeholder[PREV];
                 limitNode = refNode[PREV] || refNode;
-                // Move `movedNode` before the `refNode`
-                if (first === refNode) first = movedNode;
-                if (last === movedNode) last = movedNode[PREV];
-                parent.insertBefore(movedNode, refNode);
+                moveTo(movedNode, refNode, dir);
             }
             else if (0 < dir)
             {
                 next = movedNode[NEXT];
-                limitNode = movedNode[PREV] || movedNode[NEXT];
-                // Move `movedNode` after the `refNode`
-                if (first === movedNode) first = movedNode[NEXT];
-                if (refNode[NEXT])
-                {
-                    parent.insertBefore(movedNode, refNode[NEXT]);
-                }
-                else
-                {
-                    parent.appendChild(movedNode);
-                    last = movedNode;
-                }
+                limitNode = placeholder[PREV] || movedNode[NEXT];
+                moveTo(movedNode, refNode, dir);
             }
-            movedNode[$].index = refNode[$].index;
-            updateIndex(movedNode, next, dir);
+            updateIndex(movedNode, next, dir, placeholder);
             line = limitNode[$].line;
             limitNode = lineStart(limitNode, line);
             // update layout
@@ -832,6 +825,12 @@ function setup(self, TYPE)
         X0 = lastX + parentRect[LEFT] - dragged[$][RECT][LEFT] + dragged[$][MARGIN][LEFT];
         Y0 = lastY + parentRect[TOP] - dragged[$][RECT][TOP] + dragged[$][MARGIN][TOP];
 
+        parent.insertBefore(placeholder, dragged);
+        placeholder[STYLE][WIDTH] = Str(dragged[$][RECT][WIDTH]) + 'px';
+        placeholder[STYLE][HEIGHT] = Str(dragged[$][RECT][HEIGHT]) + 'px';
+        placeholder[STYLE][TOP] = Str(dragged[$][RECT][TOP] - parentRect[TOP]) + 'px';
+        placeholder[STYLE][LEFT] = Str(dragged[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
+
         if (UNRESTRICTED === TYPE)
         {
             dragged[STYLE][TOP] = Str(lastY-Y0) + 'px';
@@ -841,11 +840,6 @@ function setup(self, TYPE)
         {
             dragged[STYLE][axis] = Str(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0) + 'px';
         }
-        placeholder[$] = {S: {top:window.pageYOffset || 0, left:window.pageXOffset || 0}};
-        placeholder[STYLE][WIDTH] = Str(dragged[$][RECT][WIDTH]) + 'px';
-        placeholder[STYLE][HEIGHT] = Str(dragged[$][RECT][HEIGHT]) + 'px';
-        placeholder[STYLE][TOP] = Str(placeholder[$].S[TOP] + dragged[$][RECT][TOP]) + 'px';
-        placeholder[STYLE][LEFT] = Str(placeholder[$].S[LEFT] + dragged[$][RECT][LEFT]) + 'px';
     };
 
     var dragMove = throttle(function(e) {
@@ -875,7 +869,7 @@ function setup(self, TYPE)
                 .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, /*scroll.Y +*/ dragged[$].r[TOP] + 2)) // top side
                 .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, /*scroll.Y +*/ dragged[$].r[TOP] + dragged[$].r[HEIGHT] - 2)) // bottom side
                 .reduce(function(candidate, el) {
-                    if ((el !== dragged) && (el.parentNode === parent))
+                    if ((el !== dragged) && (el !== placeholder) && (el.parentNode === parent))
                     {
                         var pp = intersect(dragged, el, axis, size);
                         if (pp > p)
