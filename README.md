@@ -3,7 +3,7 @@
 Simple and light-weight JavaScript class for handling smooth drag-and-drop sortable items of an area (Desktop and Mobile).
 
 
-**version 1.1.0** (13 kB minified)
+**version 1.2.0** (14 kB minified)
 
 
 **Vertical Sortable (symmetric/asymmetric)**
@@ -35,5 +35,5 @@ Simple and light-weight JavaScript class for handling smooth drag-and-drop sorta
 **Todo**
 
 * handle asymmetric items **[DONE]**
-* handle automatic scrolling when sortable area is partially hidden (TODO)
+* handle automatic scrolling when sortable area is partially hidden **[DONE]**
 * enable drag and drop item between different sortable areas (TODO)

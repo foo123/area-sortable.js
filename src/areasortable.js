@@ -1,7 +1,7 @@
 /**
 *  area-sortable.js
 *  A simple js class to sort elements of an area smoothly using drag-and-drop (desktop and mobile)
-*  @VERSION: 1.1.0
+*  @VERSION: 1.2.0
 *
 *  https://github.com/foo123/area-sortable.js
 *
@@ -19,12 +19,13 @@ else
 }('undefined' !== typeof self ? self : this, 'AreaSortable', function(undef) {
 "use strict";
 
-var VERSION = '1.1.0', DOC = window.document,
+var VERSION = '1.2.0', DOC = window.document,
     $ = '$areaSortable', RECT = 'rect', STYLE = 'style',
     MARGIN = 'margin', PADDING = 'padding',
     LEFT = 'left', RIGHT = 'right', WIDTH = 'width',
     TOP = 'top', BOTTOM = 'bottom', HEIGHT = 'height',
     NEXT = 'nextElementSibling', PREV = 'previousElementSibling',
+    STOP = 'scrollTop', SLEFT = 'scrollLeft',
     VERTICAL = 1, HORIZONTAL = 2,
     UNRESTRICTED = VERTICAL + HORIZONTAL,
     stdMath = Math, Str = String, int = parseInt,
@@ -59,6 +60,10 @@ function hasEventOptions()
         passiveSupported = false;
     }
     return passiveSupported;
+}
+function sign(x)
+{
+    return 0 > x ? -1 : (0 < x ? 1 : 0);
 }
 function hasClass(el, className)
 {
@@ -106,18 +111,6 @@ function closestElement(el, className)
         if (hasClass(el, className)) return el;
         el = el.parentNode;
     }
-}
-function computeScroll(el, single)
-{
-    var scroll = {X: 0/*window.pageXOffset*//*scrollX*/, Y: 0/*window.pageYOffset*//*scrollY*/};
-    /*while (el)
-    {
-        scroll.X += el.scrollLeft || 0;
-        scroll.Y += el.scrollTop || 0;
-        if (single || (el === DOC.documentElement)) break;
-        el = el.parentNode;
-    }*/
-    return scroll;
 }
 function throttle(f, limit)
 {
@@ -181,7 +174,7 @@ function animate(el, ms, offset)
     }
     return el;
 }
-function intersect1D(nodeA, nodeB, axis, size)
+function intersect1D(nodeA, nodeB, scroll, axis, size)
 {
     var rectA = nodeA[$].r, rectB = nodeB[$][RECT];
 
@@ -193,12 +186,12 @@ function intersect1D(nodeA, nodeB, axis, size)
                 0,
                 stdMath.min(
                     rectA[axis] + rectA[size],
-                    rectB[axis] + rectB[size]
+                    rectB[axis] - scroll[axis] + rectB[size]
                 )
                 -
                 stdMath.max(
                     rectA[axis],
-                    rectB[axis]
+                    rectB[axis] - scroll[axis]
                 )
             )
             /
@@ -209,7 +202,7 @@ function intersect1D(nodeA, nodeB, axis, size)
         )
     );
 }
-function intersect2D(nodeA, nodeB, axis, size)
+function intersect2D(nodeA, nodeB, scroll, axis, size)
 {
     var rectA = nodeA[$].r, rectB = nodeB[$][RECT],
         overlapX = 0, overlapY = 0;
@@ -218,24 +211,24 @@ function intersect2D(nodeA, nodeB, axis, size)
         0,
         stdMath.min(
             rectA[LEFT] + rectA[WIDTH],
-            rectB[LEFT] + rectB[WIDTH]
+            rectB[LEFT] - scroll[LEFT] + rectB[WIDTH]
         )
         -
         stdMath.max(
             rectA[LEFT],
-            rectB[LEFT]
+            rectB[LEFT] - scroll[LEFT]
         )
     );
     overlapY = stdMath.max(
         0,
         stdMath.min(
             rectA[TOP] + rectA[HEIGHT],
-            rectB[TOP] + rectB[HEIGHT]
+            rectB[TOP] - scroll[TOP] + rectB[HEIGHT]
         )
         -
         stdMath.max(
             rectA[TOP],
-            rectB[TOP]
+            rectB[TOP] - scroll[TOP]
         )
     );
     return stdMath.max(
@@ -275,7 +268,7 @@ function lineStart(el, line)
     while ((next = el[PREV]) && (next[$] && next[$].line >= line)) el = next;
     return el;
 }
-function layout1(el, line, parent, movedNode, placeholder, axis, size, axis_opposite)
+function layout1(el, line, parent, movedNode, placeholder, scroll, axis, size, axis_opposite)
 {
     // layout "horizontal" positions and lines
     // to compute which "visual" line {el} is placed
@@ -297,15 +290,15 @@ function layout1(el, line, parent, movedNode, placeholder, axis, size, axis_oppo
             el[$].prev[axis] = el[$][RECT][axis];
             el[$][RECT][axis] = parent[axis] + parent[PADDING][axis] + runningEnd + el[$][MARGIN][axis];
             if (el === movedNode)
-                placeholder[STYLE][axis] = Str(el[$][RECT][axis]/* - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
+                placeholder[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis] - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
             else
-                el[STYLE][axis] = Str(el[$][RECT][axis] - el[$][MARGIN][axis] - parent[axis]) + 'px';
+                el[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis]*/ - el[$][MARGIN][axis] - parent[axis]) + 'px';
             runningEnd += end;
         }
         el = el[NEXT];
     }
 }
-function layout2(el, lines, parent, movedNode, placeholder, axis, size, axis_opposite)
+function layout2(el, lines, parent, movedNode, placeholder, scroll, axis, size, axis_opposite)
 {
     // layout "vertical" positions
     // to compute which "visual" line {el} is placed
@@ -352,21 +345,28 @@ function layout2(el, lines, parent, movedNode, placeholder, axis, size, axis_opp
                     break;
             }
             if (el === movedNode)
-                placeholder[STYLE][axis] = Str(el[$][RECT][axis]/* - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
+                placeholder[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis] - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
             else
-                el[STYLE][axis] = Str(el[$][RECT][axis] - el[$][MARGIN][axis] - parent[axis]) + 'px';
+                el[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis]*/ - el[$][MARGIN][axis] - parent[axis]) + 'px';
         }
         el = el[NEXT];
     }
+}
+function computeScroll(scrollParent)
+{
+    return {
+        top: (scrollParent ? (scrollParent[STOP] - scrollParent[$].scroll[TOP]) : 0) || 0,
+        left: (scrollParent ? (scrollParent[SLEFT] - scrollParent[$].scroll[LEFT]) : 0) || 0
+    };
 }
 
 function setup(self, TYPE)
 {
     var attached = false, canHandle = false, isDraggingStarted = false, isTouch = false,
-        placeholder, dragged, handler, closest, first, last, parent, items, lines,
-        parentRect, parentComputedStyle, parentStyle,
-        X0, Y0, lastX, lastY, scroll, dir, overlap, moved,
-        move, intersect, hasSymmetricItems = false,
+        placeholder, dragged, handler, closest, first, last, items, lines,
+        scrollParent, parent, parentRect, parentComputedStyle, parentStyle,
+        X0, Y0, lastX, lastY, vX = null, vY = null, scroll, dir, overlap, moved,
+        dt = 60, move, intersect, hasSymmetricItems = false,
         size = HORIZONTAL === TYPE ? WIDTH : HEIGHT,
         axis = HORIZONTAL === TYPE ? LEFT : TOP,
         axis_opposite = LEFT === axis ? RIGHT : BOTTOM
@@ -379,6 +379,7 @@ function setup(self, TYPE)
         closest = null;
         first = null;
         last = null;
+        scrollParent = null;
         parent = null;
         parentRect = null;
         parentStyle = null;
@@ -393,6 +394,31 @@ function setup(self, TYPE)
         var line = 0, runningEnd = 0, mrg = 0, axis = LEFT, size = WIDTH, axis_opposite = RIGHT,
             tag = (parent.tagName || '').toLowerCase();
 
+        scrollParent = null;
+        if (self.opts.autoscroll)
+        {
+            scrollParent = parent;
+            while (scrollParent)
+            {
+                if (HORIZONTAL === TYPE)
+                {
+                    if (scrollParent.scrollWidth > scrollParent.clientWidth) break;
+                }
+                else if (VERTICAL === TYPE)
+                {
+                    if (scrollParent.scrollHeight > scrollParent.clientHeight) break;
+                }
+                else //if (UNRESTRICTED === TYPE)
+                {
+                    if (
+                    scrollParent.scrollWidth > scrollParent.clientWidth
+                    || scrollParent.scrollHeight > scrollParent.clientHeight
+                    ) break;
+                }
+                scrollParent = scrollParent.parentNode;
+                if (DOC === scrollParent) scrollParent = null;
+            }
+        }
         parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
         parentComputedStyle = computedStyle(parent);
         parentRect = parent.getBoundingClientRect();
@@ -400,6 +426,18 @@ function setup(self, TYPE)
             left: int(parentComputedStyle.paddingLeft) || 0,
             right: int(parentComputedStyle.paddingRight) || 0
         };
+        if (scrollParent)
+        {
+            scrollParent[$] = {
+                rect: scrollParent.getBoundingClientRect(),
+                scroll: {
+                    top: scrollParent[STOP] || 0,
+                    left: scrollParent[SLEFT] || 0,
+                    width: scrollParent.scrollWidth,
+                    height: scrollParent.scrollHeight
+                }
+            };
+        }
         items = [].map.call(parent.children, function(el, index) {
             var end, r = el.getBoundingClientRect(), style = computedStyle(el);
             el[$] = {
@@ -529,7 +567,13 @@ function setup(self, TYPE)
                 removeEvent(DOC, 'mousemove', dragMove, false);
                 removeEvent(DOC, 'mouseup', dragEnd, false);
             }
-            if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+            if (placeholder && placeholder.parentNode)
+            {
+                placeholder.parentNode.removeChild(placeholder);
+                placeholder[$] = null;
+            }
+            if (scrollParent) scrollParent[$] = null;
+            parent[$] = null;
             removeClass(parent, self.opts.activeArea || 'dnd-sortable-area');
             restoreStyle(parent, ['width', 'height', 'box-sizing'], parentStyle);
             if (closest) removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
@@ -599,7 +643,7 @@ function setup(self, TYPE)
             movedNode[$].prev[axis] = movedNode[$][RECT][axis];
             margin = movedNode[$][MARGIN][axis] - refNode[$][MARGIN][axis];
             movedNode[$][RECT][axis] = refNode[$][RECT][axis] + margin;
-            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parentRect[axis]) + 'px';
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis]) + 'px';
             delta = movedNode[$][RECT][size] - refNode[$][RECT][size];
             margin += movedNode[$][MARGIN][axis_opposite] - refNode[$][MARGIN][axis_opposite];
             while ((next = refNode[NEXT]) && (next !== limitNode))
@@ -610,7 +654,7 @@ function setup(self, TYPE)
                 margin += refNode[$][MARGIN][axis] - next[$][MARGIN][axis];
                 refNode[$][RECT][axis] = next[$][RECT][axis] + delta + margin;
                 margin += refNode[$][MARGIN][axis_opposite] - next[$][MARGIN][axis_opposite];
-                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
+                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
                 delta += refNode[$][RECT][size] - next[$][RECT][size];
                 refNode = next;
             }
@@ -618,7 +662,7 @@ function setup(self, TYPE)
             refNode[$].index++;
             refNode[$].prev[axis] = refNode[$][RECT][axis];
             refNode[$][RECT][axis] = movedNode[$].prev[axis] + delta + margin - movedNode[$][MARGIN][axis] + refNode[$][MARGIN][axis];
-            refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
+            refNode[STYLE][axis] = Str(refNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
         }
         else if (0 < dir)
         {
@@ -636,7 +680,7 @@ function setup(self, TYPE)
                 refNode[$].prev[axis] = refNode[$][RECT][axis];
                 margin += refNode[$][MARGIN][axis] - next[$][MARGIN][axis];
                 refNode[$][RECT][axis] = next[$].prev[axis] + delta + margin;
-                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
+                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
                 delta += -(next[$][RECT][size] - refNode[$][RECT][size]);
                 margin += refNode[$][MARGIN][axis_opposite] - next[$][MARGIN][axis_opposite];
                 next = refNode;
@@ -644,7 +688,7 @@ function setup(self, TYPE)
             }
             while ((refNode) && (refNode !== placeholder));
             movedNode[$][RECT][axis] = next[$].prev[axis] + delta + margin - next[$][MARGIN][axis] + movedNode[$][MARGIN][axis];
-            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parentRect[axis]) + 'px';
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis]) + 'px';
         }
         offset = {};
         offset[axis] = target[$][RECT][axis] - target[$].prev[axis];
@@ -666,8 +710,8 @@ function setup(self, TYPE)
                 movedNode[$].line = refNode[$].line;
                 movedNode[$][RECT][TOP] = refNode[$][RECT][TOP];
                 movedNode[$][RECT][LEFT] = refNode[$][RECT][LEFT];
-                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parentRect[TOP]) + 'px';
-                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP]) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT]) + 'px';
                 while ((next = refNode[NEXT]) && (next !== limitNode))
                 {
                     if (refNode[$].animation) refNode[$].animation.stop();
@@ -678,8 +722,8 @@ function setup(self, TYPE)
                     refNode[$].line = next[$].line;
                     refNode[$][RECT][TOP] = next[$][RECT][TOP];
                     refNode[$][RECT][LEFT] = next[$][RECT][LEFT];
-                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
-                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
+                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
+                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
                     refNode = next;
                 }
                 if (refNode[$].animation) refNode[$].animation.stop();
@@ -690,8 +734,8 @@ function setup(self, TYPE)
                 refNode[$].line = movedNode[$].prev.line;
                 refNode[$][RECT][TOP] = movedNode[$].prev[TOP];
                 refNode[$][RECT][LEFT] = movedNode[$].prev[LEFT];
-                refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
-                refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
+                refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
+                refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
             }
             else if (0 < dir)
             {
@@ -712,8 +756,8 @@ function setup(self, TYPE)
                     refNode[$].line = next[$].prev.line;
                     refNode[$][RECT][TOP] = next[$].prev[TOP];
                     refNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
-                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
+                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
+                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
                     next = refNode;
                     refNode = refNode[NEXT];
                 }
@@ -721,8 +765,8 @@ function setup(self, TYPE)
                 movedNode[$].line = next[$].prev.line;
                 movedNode[$][RECT][TOP] = next[$].prev[TOP];
                 movedNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parentRect[TOP]) + 'px';
-                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP]) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT]) + 'px';
             }
             animate(target, ms, {
                 top: target[$][RECT][TOP] - target[$].prev[TOP],
@@ -748,8 +792,8 @@ function setup(self, TYPE)
             line = limitNode[$].line;
             limitNode = lineStart(limitNode, line);
             // update layout
-            layout1(limitNode, line, parentRect, movedNode, placeholder, LEFT, WIDTH, RIGHT);
-            layout2(limitNode, lines, parentRect, movedNode, placeholder, TOP, HEIGHT, BOTTOM);
+            layout1(limitNode, line, parentRect, movedNode, placeholder, scroll, LEFT, WIDTH, RIGHT);
+            layout2(limitNode, lines, parentRect, movedNode, placeholder, scroll, TOP, HEIGHT, BOTTOM);
             animate(target, ms, {
                 top: target[$][RECT][TOP] - target[$].prev[TOP],
                 left: target[$][RECT][LEFT] - target[$].prev[LEFT]
@@ -817,7 +861,6 @@ function setup(self, TYPE)
 
         isTouch = e.changedTouches && e.changedTouches.length;
 
-        scroll = computeScroll(parent);
         prepare();
 
         lastX = isTouch ? e.changedTouches[0].clientX : e.clientX;
@@ -831,6 +874,7 @@ function setup(self, TYPE)
         placeholder[STYLE][TOP] = Str(dragged[$][RECT][TOP] - parentRect[TOP]) + 'px';
         placeholder[STYLE][LEFT] = Str(dragged[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
 
+        vX = null; vY = null;
         if (UNRESTRICTED === TYPE)
         {
             dragged[STYLE][TOP] = Str(lastY-Y0) + 'px';
@@ -844,7 +888,7 @@ function setup(self, TYPE)
 
     var dragMove = throttle(function(e) {
         var hovered, p = 0.0, Y, X, deltaX, deltaY, delta, centerX, centerY,
-            c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z, d = 50;
+            c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z, d = 25, scrolling = false;
 
         if (VERTICAL === TYPE)
         {
@@ -854,24 +898,115 @@ function setup(self, TYPE)
 
         X = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
         Y = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
+
         deltaX = X - lastX;
         deltaY = Y - lastY;
-        //dragged[$].r = dragged.getBoundingClientRect();
-        dragged[$].r[TOP] = Y - Y0 +  parentRect[TOP] + dragged[$][MARGIN][TOP];
-        dragged[$].r[LEFT] = X - X0 +  parentRect[LEFT] + dragged[$][MARGIN][LEFT];
-        centerX = /*scroll.X +*/ dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2;
-        centerY = /*scroll.Y +*/ dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2;
+
+        scroll = computeScroll(scrollParent);
+
+        if (HORIZONTAL === TYPE)
+        {
+            dragged[STYLE][LEFT] = Str(X - X0) + 'px';
+            dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+        }
+        else if (VERTICAL === TYPE)
+        {
+            dragged[STYLE][TOP] = Str(Y - Y0) + 'px';
+            dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
+        }
+        else //if (UNRESTRICTED === TYPE)
+        {
+            dragged[STYLE][TOP] = Str(Y - Y0) + 'px';
+            dragged[STYLE][LEFT] = Str(X - X0) + 'px';
+            dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
+            dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+        }
+
+        if (self.opts.autoscroll && scrollParent)
+        {
+            if (HORIZONTAL === TYPE)
+            {
+                if (
+                    (0 < deltaX
+                    && scrollParent[SLEFT] + scrollParent[$].rect[WIDTH] < scrollParent[$].scroll[WIDTH]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 + d > scrollParent[$].rect[RIGHT])
+                    || (0 > deltaX
+                    && 0 < scrollParent[SLEFT]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 - d < scrollParent[$].rect[LEFT])
+                )
+                {
+                    scrollParent[SLEFT] += sign(deltaX) * dragged[$].r[WIDTH];
+                    scrolling = true;
+                }
+            }
+            else if (VERTICAL === TYPE)
+            {
+                if (
+                    (0 < deltaY
+                    && scrollParent[STOP] + scrollParent[$].rect[HEIGHT] < scrollParent[$].scroll[HEIGHT]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 + d > scrollParent[$].rect[BOTTOM])
+                    || (0 > deltaY
+                    && 0 < scrollParent[STOP]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 - d < scrollParent[$].rect[TOP])
+                )
+                {
+                    scrollParent[STOP] += sign(deltaY) * dragged[$].r[HEIGHT];
+                    scrolling = true;
+                }
+            }
+            else //if (UNRESTRICTED === TYPE)
+            {
+                if (
+                    (0 < deltaX
+                    && scrollParent[SLEFT] + scrollParent[$].rect[WIDTH] < scrollParent[$].scroll[WIDTH]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 + d > scrollParent[$].rect[RIGHT])
+                    || (0 > deltaX
+                    && 0 < scrollParent[SLEFT]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 - d < scrollParent[$].rect[LEFT])
+                    || (0 < deltaY
+                    && scrollParent[STOP] + scrollParent[$].rect[HEIGHT] < scrollParent[$].scroll[HEIGHT]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 + d > scrollParent[$].rect[BOTTOM])
+                    || (0 > deltaY
+                    && 0 < scrollParent[STOP]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 - d < scrollParent[$].rect[TOP])
+                )
+                {
+                    scrollParent[STOP] += sign(deltaY) * dragged[$].r[HEIGHT];
+                    scrollParent[SLEFT] += sign(deltaX) * dragged[$].r[WIDTH];
+                    scrolling = true;
+                }
+            }
+        }
+        if (scrolling)
+        {
+            scroll = computeScroll(scrollParent);
+            if (HORIZONTAL === TYPE)
+            {
+                dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+            }
+            else if (VERTICAL === TYPE)
+            {
+                dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
+            }
+            else //if (UNRESTRICTED === TYPE)
+            {
+                dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
+                dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+            }
+        }
+        centerX = dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2;
+        centerY = dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2;
         z = dragged[$].r[zc];
 
         hovered = elementsAt(X, Y) // current mouse pos
-                .concat(VERTICAL === TYPE ? [] : elementsAt(/*scroll.X +*/ dragged[$].r[LEFT] + 2, centerY)) // left side
-                .concat(VERTICAL === TYPE ? [] : elementsAt(/*scroll.X +*/ dragged[$].r[LEFT] + dragged[$].r[WIDTH] - 2, centerY)) // right side
-                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, /*scroll.Y +*/ dragged[$].r[TOP] + 2)) // top side
-                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, /*scroll.Y +*/ dragged[$].r[TOP] + dragged[$].r[HEIGHT] - 2)) // bottom side
+                .concat(VERTICAL === TYPE ? [] : elementsAt(dragged[$].r[LEFT] + 2, centerY)) // left side
+                .concat(VERTICAL === TYPE ? [] : elementsAt(dragged[$].r[LEFT] + dragged[$].r[WIDTH] - 2, centerY)) // right side
+                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, dragged[$].r[TOP] + 2)) // top side
+                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, dragged[$].r[TOP] + dragged[$].r[HEIGHT] - 2)) // bottom side
                 .reduce(function(candidate, el) {
                     if ((el !== dragged) && (el !== placeholder) && (el.parentNode === parent))
                     {
-                        var pp = intersect(dragged, el, axis, size);
+                        var pp = intersect(dragged, el, scroll, axis, size);
                         if (pp > p)
                         {
                             p = pp;
@@ -887,23 +1022,21 @@ function setup(self, TYPE)
             if (
                 !hovered
                 && (dragged !== first)
-                && (0 <= first[$][RECT][zc] - (z + dragged[$][RECT][zs]))
-                && (first[$][RECT][zc] - (z + dragged[$][RECT][zs]) < d)
-                && (0.7 < (p = intersect1D(dragged, first, c, s)))
+                && (0 <= first[$][RECT][zc] - scroll[zc] - (z + dragged[$][RECT][zs]))
+                && (first[$][RECT][zc] - scroll[zc] - (z + dragged[$][RECT][zs]) < d)
+                && (0.7 < (p = intersect1D(dragged, first, scroll, c, s)))
             )
                 hovered = first;
 
             if (
                 !hovered
                 && (dragged !== last)
-                && (0 <= z - (last[$][RECT][zc] + last[$][RECT][zs]))
-                && (z - (last[$][RECT][zc] + last[$][RECT][zs]) < d)
-                && (0.7 < (p = intersect1D(dragged, last, c, s)))
+                && (0 <= z - (last[$][RECT][zc] - scroll[zc] + last[$][RECT][zs]))
+                && (z - (last[$][RECT][zc] - scroll[zc] + last[$][RECT][zs]) < d)
+                && (0.7 < (p = intersect1D(dragged, last, scroll, c, s)))
             )
                 hovered = last;
 
-            dragged[STYLE][TOP] = Str(Y - Y0) + 'px';
-            dragged[STYLE][LEFT] = Str(X - X0) + 'px';
             delta = hovered ? hovered[$].index - dragged[$].index : (stdMath.abs(deltaY) >= stdMath.abs(deltaX) ? deltaY : deltaX);
         }
         else
@@ -911,25 +1044,23 @@ function setup(self, TYPE)
             if (
                 !hovered
                 && (dragged !== first)
-                && (first[$][RECT][zc] > (z + dragged[$][RECT][zs]))
+                && (first[$][RECT][zc] - scroll[zc] > (z + dragged[$][RECT][zs]))
             )
                 hovered = first;
 
             if (
                 !hovered
                 && (dragged !== last)
-                && (z > (last[$][RECT][zc] + last[$][RECT][zs]))
+                && (z > (last[$][RECT][zc] - scroll[zc] + last[$][RECT][zs]))
             )
                 hovered = last;
 
             if (HORIZONTAL === TYPE)
             {
-                dragged[STYLE][axis] = Str(X - X0) + 'px';
                 delta = deltaX;
             }
             else
             {
-                dragged[STYLE][axis] = Str(Y - Y0) + 'px';
                 delta = deltaY;
             }
         }
@@ -940,7 +1071,7 @@ function setup(self, TYPE)
                 (0 > dir && 0 < delta && overlap < 0.5)
                 || (0 < dir && 0 > delta && overlap < 0.5)
                 || (hovered && (closest !== hovered) && (overlap < p))
-                || (!intersect(dragged, closest, axis, size))
+                || (!intersect(dragged, closest, scroll, axis, size))
             )
         )
         {
@@ -961,7 +1092,7 @@ function setup(self, TYPE)
 
         if (closest)
         {
-            p = p || intersect(dragged, closest, axis, size);
+            p = p || intersect(dragged, closest, scroll, axis, size);
             if (p)
             {
                 overlap = p;
@@ -985,7 +1116,7 @@ function setup(self, TYPE)
                 overlap = 0; closest = null;
             }
         }
-    }, 60);
+    }, dt);
 
     var dragEnd = function(e) {
         var el = dragged;

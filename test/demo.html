@@ -32,6 +32,7 @@ h1 {
     list-style-type: none;
     border: 1px solid #999;
     width: 900px;
+    min-width: 500px;
     max-width: 100%;
     font-size: 0;
     text-align: left;
@@ -57,6 +58,7 @@ h1 {
     cursor: ns-resize;
     margin: 4px 0;
 }
+#c5.container > .dnd-sortable-item,
 #c2.container > .dnd-sortable-item {
     display: inline-block;
     width: calc(15% - 8px);
@@ -149,6 +151,16 @@ h1 {
 <li id="f8" class="dnd-sortable-item dnd-sortable-handle">8</li>
 </ul>
 
+<div style="position: relative; width: 290px; overflow-x:scroll; margin: 20px auto; padding:0; border:1px solid #121212">
+<ul id="c5" class="container">
+<li id="AHS" class="dnd-sortable-item dnd-sortable-handle">A</li>
+<li id="BHS" class="dnd-sortable-item dnd-sortable-handle">B</li>
+<li id="CHS" class="dnd-sortable-item dnd-sortable-handle wide">C</li>
+<li id="DHS" class="dnd-sortable-item dnd-sortable-handle" style="width:12%;margin:0 10px 0 20px">D</li>
+<li id="EHS" class="dnd-sortable-item dnd-sortable-handle">E</li>
+</ul>
+</div>
+
 <script src="../src/areasortable.js"></script>
 <script>
 document.getElementById('ver').textContent = AreaSortable.VERSION;
@@ -176,6 +188,7 @@ let instance1 = AreaSortable('vertical', {
     ,placeholder: 'dnd-sortable-placeholder' // default
     ,activeItem: 'dnd-sortable-dragged' // default
     ,closestItem: 'dnd-sortable-closest' // default
+    ,autoscroll: false // default
     ,animationMs: 180 // default 0
     ,itemFilter: function(item){return item;} // default
     ,onStart: function(item){disableScroll();}
@@ -199,12 +212,18 @@ let instance4 = AreaSortable('unrestricted', {
     ,onStart: function(item){disableScroll();}
     ,onEnd: function(item){enableScroll();}
 });
+let instance5 = AreaSortable('horizontal', {
+    container: 'c5' // container element or id
+    ,autoscroll: true
+    ,animationMs: 180
+});
 /*
 // dispose
 instance1.dispose();
 instance2.dispose();
 instance3.dispose();
 instance4.dispose();
+instance5.dispose();
 */
 </script>
 </body>
