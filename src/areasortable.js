@@ -19,8 +19,8 @@ else
 }('undefined' !== typeof self ? self : this, 'AreaSortable', function(undef) {
 "use strict";
 
-var VERSION = '1.2.0', DOC = window.document,
-    $ = '$areaSortable', RECT = 'rect', STYLE = 'style',
+var VERSION = '1.2.0', $ = '$areaSortable',
+    RECT = 'rect', STYLE = 'style',
     MARGIN = 'margin', PADDING = 'padding',
     LEFT = 'left', RIGHT = 'right', WIDTH = 'width',
     TOP = 'top', BOTTOM = 'bottom', HEIGHT = 'height',
@@ -99,7 +99,7 @@ function computedStyle(el)
 {
     return ('function' === typeof(window.getComputedStyle) ? window.getComputedStyle(el) : el.currentStyle) || {};
 }
-function elementsAt(x, y)
+function elementsAt(DOC, x, y)
 {
     return DOC.elementsFromPoint(x, y);
 }
@@ -148,7 +148,7 @@ function animate(el, ms, offset)
 {
     if (0 < ms)
     {
-        if (el[$].animation) el[$].animation.stop();
+        if (el[$] && el[$].animation) el[$].animation.stop();
         var trs = 'transform ' + Str(ms) + 'ms',
             trf = 'translate3d(0,0,0)',
             time = null,
@@ -161,7 +161,6 @@ function animate(el, ms, offset)
                     el[STYLE].transition = 'none';
                     el[STYLE].transform = 'none';
                 }
-                return el;
             }
         ;
         el[STYLE].transition = 'none';
@@ -359,17 +358,32 @@ function computeScroll(scrollParent)
         left: (scrollParent ? (scrollParent[SLEFT] - scrollParent[$].scroll[LEFT]) : 0) || 0
     };
 }
+function concat(a)
+{
+    for (var i = 1, args = arguments; i < args.length; i++)
+        a.push.apply(a, args[i]);
+    return a;
+}
+function canScroll(el, axis)
+{
+    if (0 === el[axis])
+    {
+        el[axis] = 1;
+        if (1 === el[axis]) {el[axis] = 0; return true;}
+    }
+    else return true;
+}
 
 function setup(self, TYPE)
 {
     var attached = false, canHandle = false, isDraggingStarted = false, isTouch = false,
         placeholder, dragged, handler, closest, first, last, items, lines,
         scrollParent, parent, parentRect, parentComputedStyle, parentStyle,
-        X0, Y0, lastX, lastY, vX = null, vY = null, scroll, dir, overlap, moved,
-        dt = 60, move, intersect, hasSymmetricItems = false,
+        X0, Y0, lastX, lastY, scrolling = null, scroll, dir, overlap, moved,
+        delay = 60, fps = 60, dt = 1000 / fps, move, intersect, hasSymmetricItems = false,
         size = HORIZONTAL === TYPE ? WIDTH : HEIGHT,
         axis = HORIZONTAL === TYPE ? LEFT : TOP,
-        axis_opposite = LEFT === axis ? RIGHT : BOTTOM
+        axis_opposite = LEFT === axis ? RIGHT : BOTTOM, DOC
     ;
 
     var clear = function() {
@@ -386,6 +400,7 @@ function setup(self, TYPE)
         parentComputedStyle = null;
         items = null;
         lines = null;
+        DOC = null;
         moved = false;
         overlap = 0;
     };
@@ -400,23 +415,16 @@ function setup(self, TYPE)
             scrollParent = parent;
             while (scrollParent)
             {
-                if (HORIZONTAL === TYPE)
-                {
-                    if (scrollParent.scrollWidth > scrollParent.clientWidth) break;
-                }
-                else if (VERTICAL === TYPE)
-                {
-                    if (scrollParent.scrollHeight > scrollParent.clientHeight) break;
-                }
-                else //if (UNRESTRICTED === TYPE)
-                {
-                    if (
-                    scrollParent.scrollWidth > scrollParent.clientWidth
-                    || scrollParent.scrollHeight > scrollParent.clientHeight
-                    ) break;
-                }
+                if (
+                    (DOC.scrollingElement === scrollParent)
+                    || ((HORIZONTAL !== TYPE)
+                    && (scrollParent.scrollHeight > scrollParent.clientHeight)
+                    && canScroll(scrollParent, STOP))
+                    || ((VERTICAL !== TYPE)
+                    && (scrollParent.scrollWidth > scrollParent.clientWidth)
+                    && canScroll(scrollParent, SLEFT))
+                ) break;
                 scrollParent = scrollParent.parentNode;
-                if (DOC === scrollParent) scrollParent = null;
             }
         }
         parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
@@ -556,6 +564,11 @@ function setup(self, TYPE)
     var restore = function() {
         if (isDraggingStarted)
         {
+            if (scrolling)
+            {
+                clearInterval(scrolling);
+                scrolling = null;
+            }
             if (isTouch)
             {
                 removeEvent(DOC, 'touchmove', dragMove, false);
@@ -855,6 +868,7 @@ function setup(self, TYPE)
         }
 
         isDraggingStarted = true;
+        DOC = dragged.ownerDocument || document;
         e.preventDefault && e.preventDefault();
         e.stopPropagation && e.stopPropagation();
         e.stopImmediatePropagation && e.stopImmediatePropagation();
@@ -874,21 +888,13 @@ function setup(self, TYPE)
         placeholder[STYLE][TOP] = Str(dragged[$][RECT][TOP] - parentRect[TOP]) + 'px';
         placeholder[STYLE][LEFT] = Str(dragged[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
 
-        vX = null; vY = null;
-        if (UNRESTRICTED === TYPE)
-        {
-            dragged[STYLE][TOP] = Str(lastY-Y0) + 'px';
-            dragged[STYLE][LEFT] = Str(lastX-X0) + 'px';
-        }
-        else
-        {
-            dragged[STYLE][axis] = Str(HORIZONTAL === TYPE ? lastX-X0 : lastY-Y0) + 'px';
-        }
+        if (HORIZONTAL !== TYPE) dragged[STYLE][TOP] = Str(lastY-Y0) + 'px';
+        if (VERTICAL !== TYPE) dragged[STYLE][LEFT] = Str(lastX-X0) + 'px';
     };
 
     var dragMove = throttle(function(e) {
         var hovered, p = 0.0, Y, X, deltaX, deltaY, delta, centerX, centerY,
-            c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z, d = 25, scrolling = false;
+            c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z, d = 25, tX = 0, tY = 0;
 
         if (VERTICAL === TYPE)
         {
@@ -901,109 +907,76 @@ function setup(self, TYPE)
 
         deltaX = X - lastX;
         deltaY = Y - lastY;
+        lastX = X;
+        lastY = Y;
 
         scroll = computeScroll(scrollParent);
 
-        if (HORIZONTAL === TYPE)
+        if (HORIZONTAL !== TYPE)
         {
-            dragged[STYLE][LEFT] = Str(X - X0) + 'px';
-            dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+            dragged[STYLE][TOP] = Str(Y - Y0 + scroll[TOP]) + 'px';
+            dragged[$].r[TOP] = Y - Y0 + parentRect[TOP] + dragged[$][MARGIN][TOP];
         }
-        else if (VERTICAL === TYPE)
+        if (VERTICAL !== TYPE)
         {
-            dragged[STYLE][TOP] = Str(Y - Y0) + 'px';
-            dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
-        }
-        else //if (UNRESTRICTED === TYPE)
-        {
-            dragged[STYLE][TOP] = Str(Y - Y0) + 'px';
-            dragged[STYLE][LEFT] = Str(X - X0) + 'px';
-            dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
-            dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+            dragged[STYLE][LEFT] = Str(X - X0 + scroll[LEFT]) + 'px';
+            dragged[$].r[LEFT] = X - X0 + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
         }
 
-        if (self.opts.autoscroll && scrollParent)
+        if (self.opts.autoscroll && scrollParent && !scrolling)
         {
-            if (HORIZONTAL === TYPE)
+            if (
+                (VERTICAL !== TYPE)
+                && ((0 < deltaX
+                && scrollParent[SLEFT] + scrollParent[$].rect[WIDTH] < scrollParent[$].scroll[WIDTH]
+                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 + d > scrollParent[$].rect[RIGHT])
+                || (0 > deltaX
+                && 0 < scrollParent[SLEFT]
+                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 - d < scrollParent[$].rect[LEFT]))
+            )
             {
-                if (
-                    (0 < deltaX
-                    && scrollParent[SLEFT] + scrollParent[$].rect[WIDTH] < scrollParent[$].scroll[WIDTH]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 + d > scrollParent[$].rect[RIGHT])
-                    || (0 > deltaX
-                    && 0 < scrollParent[SLEFT]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 - d < scrollParent[$].rect[LEFT])
-                )
-                {
-                    scrollParent[SLEFT] += sign(deltaX) * dragged[$].r[WIDTH];
-                    scrolling = true;
-                }
+                tX = stdMath.round(sign(deltaX) * 1.5 * dragged[$].r[WIDTH]);
             }
-            else if (VERTICAL === TYPE)
+            if (
+                (HORIZONTAL !== TYPE)
+                && ((0 < deltaY
+                && scrollParent[STOP] + scrollParent[$].rect[HEIGHT] < scrollParent[$].scroll[HEIGHT]
+                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 + d > scrollParent[$].rect[BOTTOM])
+                || (0 > deltaY
+                && 0 < scrollParent[STOP]
+                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 - d < scrollParent[$].rect[TOP]))
+            )
             {
-                if (
-                    (0 < deltaY
-                    && scrollParent[STOP] + scrollParent[$].rect[HEIGHT] < scrollParent[$].scroll[HEIGHT]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 + d > scrollParent[$].rect[BOTTOM])
-                    || (0 > deltaY
-                    && 0 < scrollParent[STOP]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 - d < scrollParent[$].rect[TOP])
-                )
-                {
-                    scrollParent[STOP] += sign(deltaY) * dragged[$].r[HEIGHT];
-                    scrolling = true;
-                }
+                tY = stdMath.round(sign(deltaY) * 1.5 * dragged[$].r[HEIGHT]);
             }
-            else //if (UNRESTRICTED === TYPE)
-            {
-                if (
-                    (0 < deltaX
-                    && scrollParent[SLEFT] + scrollParent[$].rect[WIDTH] < scrollParent[$].scroll[WIDTH]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 + d > scrollParent[$].rect[RIGHT])
-                    || (0 > deltaX
-                    && 0 < scrollParent[SLEFT]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 - d < scrollParent[$].rect[LEFT])
-                    || (0 < deltaY
-                    && scrollParent[STOP] + scrollParent[$].rect[HEIGHT] < scrollParent[$].scroll[HEIGHT]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 + d > scrollParent[$].rect[BOTTOM])
-                    || (0 > deltaY
-                    && 0 < scrollParent[STOP]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 - d < scrollParent[$].rect[TOP])
-                )
-                {
-                    scrollParent[STOP] += sign(deltaY) * dragged[$].r[HEIGHT];
-                    scrollParent[SLEFT] += sign(deltaX) * dragged[$].r[WIDTH];
-                    scrolling = true;
-                }
-            }
+            if (tX || tY) scrolling = (function(tX, tY, tS, dt) {
+                    var sT = scrollParent[STOP] || 0, sL = scrollParent[SLEFT] || 0,
+                        duration = 0, vX = tX / tS, vY = tY / tS;
+                    return setInterval(function() {
+                        sT += vY * dt; sL += vX * dt; duration += dt;
+                        scrollParent[STOP] = stdMath.max(0, sT);
+                        scrollParent[SLEFT] = stdMath.max(0, sL);
+                        if (duration >= tS)
+                        {
+                            clearInterval(scrolling);
+                            scrolling = null;
+                        }
+                    }, dt);
+                })(stdMath.abs(tX) > stdMath.abs(tY) ? tX : 0, stdMath.abs(tY) >= stdMath.abs(tX) ? tY : 0, 800, dt);
         }
-        if (scrolling)
-        {
-            scroll = computeScroll(scrollParent);
-            if (HORIZONTAL === TYPE)
-            {
-                dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
-            }
-            else if (VERTICAL === TYPE)
-            {
-                dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
-            }
-            else //if (UNRESTRICTED === TYPE)
-            {
-                dragged[$].r[TOP] = Y - Y0 - scroll[TOP] + parentRect[TOP] + dragged[$][MARGIN][TOP];
-                dragged[$].r[LEFT] = X - X0 - scroll[LEFT] + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
-            }
-        }
+
+        // correct
         centerX = dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2;
         centerY = dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2;
         z = dragged[$].r[zc];
 
-        hovered = elementsAt(X, Y) // current mouse pos
-                .concat(VERTICAL === TYPE ? [] : elementsAt(dragged[$].r[LEFT] + 2, centerY)) // left side
-                .concat(VERTICAL === TYPE ? [] : elementsAt(dragged[$].r[LEFT] + dragged[$].r[WIDTH] - 2, centerY)) // right side
-                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, dragged[$].r[TOP] + 2)) // top side
-                .concat(HORIZONTAL === TYPE ? [] : elementsAt(centerX, dragged[$].r[TOP] + dragged[$].r[HEIGHT] - 2)) // bottom side
-                .reduce(function(candidate, el) {
+        hovered = concat(
+                elementsAt(DOC, X, Y), // current mouse pos
+                VERTICAL === TYPE ? [] : elementsAt(DOC, dragged[$].r[LEFT] + 2, centerY), // left side
+                VERTICAL === TYPE ? [] : elementsAt(DOC, dragged[$].r[LEFT] + dragged[$].r[WIDTH] - 2, centerY), // right side
+                HORIZONTAL === TYPE ? [] : elementsAt(DOC, centerX, dragged[$].r[TOP] + 2), // top side
+                HORIZONTAL === TYPE ? [] : elementsAt(DOC, centerX, dragged[$].r[TOP] + dragged[$].r[HEIGHT] - 2) // bottom side
+                ).reduce(function(candidate, el) {
                     if ((el !== dragged) && (el !== placeholder) && (el.parentNode === parent))
                     {
                         var pp = intersect(dragged, el, scroll, axis, size);
@@ -1055,14 +1028,7 @@ function setup(self, TYPE)
             )
                 hovered = last;
 
-            if (HORIZONTAL === TYPE)
-            {
-                delta = deltaX;
-            }
-            else
-            {
-                delta = deltaY;
-            }
+            delta = HORIZONTAL === TYPE ? deltaX : deltaY;
         }
 
         if (
@@ -1086,9 +1052,6 @@ function setup(self, TYPE)
             overlap = p;
             moved = false;
         }
-
-        lastX = X;
-        lastY = Y;
 
         if (closest)
         {
@@ -1116,7 +1079,7 @@ function setup(self, TYPE)
                 overlap = 0; closest = null;
             }
         }
-    }, dt);
+    }, delay);
 
     var dragEnd = function(e) {
         var el = dragged;
@@ -1137,8 +1100,8 @@ function setup(self, TYPE)
         if (!attached)
         {
             attached = true;
-            addEvent(DOC, 'touchstart', dragStart, {capture:true, passive:false});
-            addEvent(DOC, 'mousedown', dragStart, {capture:true, passive:false});
+            addEvent(document, 'touchstart', dragStart, {capture:true, passive:false});
+            addEvent(document, 'mousedown', dragStart, {capture:true, passive:false});
         }
     };
 
@@ -1148,8 +1111,8 @@ function setup(self, TYPE)
         if (attached)
         {
             attached = false;
-            removeEvent(DOC, 'touchstart', dragStart, {capture:true, passive:false});
-            removeEvent(DOC, 'mousedown', dragStart, {capture:true, passive:false});
+            removeEvent(document, 'touchstart', dragStart, {capture:true, passive:false});
+            removeEvent(document, 'mousedown', dragStart, {capture:true, passive:false});
         }
         restore();
         clear();

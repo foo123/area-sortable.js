@@ -32,7 +32,6 @@ h1 {
     list-style-type: none;
     border: 1px solid #999;
     width: 900px;
-    min-width: 500px;
     max-width: 100%;
     font-size: 0;
     text-align: left;
@@ -65,12 +64,19 @@ h1 {
     cursor: ew-resize;
     margin: 0 4px;
 }
+#c6.container > .dnd-sortable-item,
 #c4.container > .dnd-sortable-item,
 #c3.container > .dnd-sortable-item {
     margin: 4px;
     display: inline-block;
     width: calc(25% - 8px);
     cursor: move;
+}
+#c6.container,
+#c5.container {
+    border: none;
+    margin: 0;
+    min-width: 1000px;
 }
 #c1.container > .dnd-sortable-item.tall {
     font-size: 46px;
@@ -151,13 +157,29 @@ h1 {
 <li id="f8" class="dnd-sortable-item dnd-sortable-handle">8</li>
 </ul>
 
-<div style="position: relative; width: 290px; overflow-x:scroll; margin: 20px auto; padding:0; border:1px solid #121212">
+<div style="position: relative; width: 400px; overflow-x: scroll; margin: 20px auto; padding: 0; border: 1px solid #121212">
 <ul id="c5" class="container">
 <li id="AHS" class="dnd-sortable-item dnd-sortable-handle">A</li>
 <li id="BHS" class="dnd-sortable-item dnd-sortable-handle">B</li>
 <li id="CHS" class="dnd-sortable-item dnd-sortable-handle wide">C</li>
 <li id="DHS" class="dnd-sortable-item dnd-sortable-handle" style="width:12%;margin:0 10px 0 20px">D</li>
 <li id="EHS" class="dnd-sortable-item dnd-sortable-handle">E</li>
+</ul>
+</div>
+
+<div style="position: relative; height: 200px; width: 400px; overflow: scroll; margin: 20px auto; padding: 0; border: 1px solid #121212">
+<ul id="c6" class="container">
+<li id="si1" class="dnd-sortable-item dnd-sortable-handle">1</li>
+<li id="si2" class="dnd-sortable-item dnd-sortable-handle">2</li>
+<li id="si3" class="dnd-sortable-item dnd-sortable-handle">3</li>
+<li id="si4" class="dnd-sortable-item dnd-sortable-handle">4</li>
+<li id="si5" class="dnd-sortable-item dnd-sortable-handle">5</li>
+<li id="si6" class="dnd-sortable-item dnd-sortable-handle">6</li>
+<li id="si7" class="dnd-sortable-item dnd-sortable-handle">7</li>
+<li id="si8" class="dnd-sortable-item dnd-sortable-handle">8</li>
+<li id="si9" class="dnd-sortable-item dnd-sortable-handle">9</li>
+<li id="si10" class="dnd-sortable-item dnd-sortable-handle">10</li>
+<li id="si11" class="dnd-sortable-item dnd-sortable-handle">11</li>
 </ul>
 </div>
 
@@ -217,6 +239,11 @@ let instance5 = AreaSortable('horizontal', {
     ,autoscroll: true
     ,animationMs: 180
 });
+let instance6 = AreaSortable('unrestricted', {
+    container: 'c6' // container element or id
+    ,autoscroll: true
+    ,animationMs: 180
+});
 /*
 // dispose
 instance1.dispose();
@@ -224,6 +251,7 @@ instance2.dispose();
 instance3.dispose();
 instance4.dispose();
 instance5.dispose();
+instance6.dispose();
 */
 </script>
 </body>

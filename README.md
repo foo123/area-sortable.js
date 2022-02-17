@@ -35,5 +35,5 @@ Simple and light-weight JavaScript class for handling smooth drag-and-drop sorta
 **Todo**
 
 * handle asymmetric items **[DONE]**
-* handle automatic scrolling when sortable area is partially hidden **[DONE]**
+* handle automatic scrolling when sortable area is partially hidden (`autoscroll` option) **[DONE]**
 * enable drag and drop item between different sortable areas (TODO)
