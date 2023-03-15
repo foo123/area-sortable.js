@@ -99,6 +99,18 @@ function scrollingElement(document)
 {
     return document.scrollingElement || document.documentElement || document.body;
 }
+function scrollBy(el, dx, dy)
+{
+    if (el.scrollBy)
+    {
+        el.scrollBy({left:(dx || 0), top:(dy || 0), behavior:'instant'});
+    }
+    else if (null != el[SLEFT] && null != el[STOP])
+    {
+        el[SLEFT] += (dx || 0);
+        el[STOP] += (dy || 0);
+    }
+}
 function computedStyle(el)
 {
     return ('function' === typeof(window.getComputedStyle) ? window.getComputedStyle(el, null) : el.currentStyle) || {};
@@ -392,7 +404,7 @@ function setup(self, TYPE)
 {
     var attached = false, canHandle = false, isDraggingStarted = false, isTouch = false,
         placeholder, dragged, handler, closest,
-        first, last, items, lines, scrollParent, parent,
+        first, last, items, lines, scrollEl, scrollParent, parent,
         X0, Y0, lastX, lastY, scrolling = null, scroll, dir, overlap, moved,
         delay = 60, fps = 60, dt = 1000 / fps, move, intersect, hasSymmetricItems = false,
         size = HORIZONTAL === TYPE ? WIDTH : HEIGHT,
@@ -417,10 +429,11 @@ function setup(self, TYPE)
     };
 
     var prepare = function() {
-        var line = 0, runningEnd = 0, mrg = 0, scrollEl = scrollingElement(DOC),
+        var line = 0, runningEnd = 0, mrg = 0,
             axis = LEFT, size = WIDTH, axis_opposite = RIGHT,
             tag = (parent.tagName || '').toLowerCase();
 
+        scrollEl = scrollingElement(DOC);
         scrollParent = null;
         if (self.options.autoscroll)
         {
@@ -961,37 +974,69 @@ function setup(self, TYPE)
 
         if (self.options.autoscroll && scrollParent && !scrolling)
         {
-            if (
-                (VERTICAL !== TYPE)
-                && ((0 < deltaX
-                && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
-                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 + d > scrollParent[$][RECT][RIGHT])
-                || (0 > deltaX
-                && 0 < scrollParent[SLEFT]
-                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 - d < scrollParent[$][RECT][LEFT]))
-            )
+            if (scrollEl === scrollParent)
             {
-                tX = stdMath.round(sign(deltaX) * 1.2 * dragged[$].r[WIDTH]);
+                if (
+                    (VERTICAL !== TYPE)
+                    && ((0 < deltaX
+                    && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 >= scrollParent[$][RECT][WIDTH])
+                    || (0 > deltaX
+                    && 0 < scrollParent[SLEFT]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 <= 0))
+                )
+                {
+                    tX = stdMath.round(sign(deltaX) * 3 * dragged[$].r[WIDTH]);
+                }
+                if (
+                    (HORIZONTAL !== TYPE)
+                    && ((0 < deltaY
+                    && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 >= scrollParent[$][RECT][HEIGHT])
+                    || (0 > deltaY
+                    && 0 < scrollParent[STOP]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 <= 0))
+                )
+                {
+                    tY = stdMath.round(sign(deltaY) * 3 * dragged[$].r[HEIGHT]);
+                }
             }
-            if (
-                (HORIZONTAL !== TYPE)
-                && ((0 < deltaY
-                && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
-                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 + d > scrollParent[$][RECT][BOTTOM])
-                || (0 > deltaY
-                && 0 < scrollParent[STOP]
-                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 - d < scrollParent[$][RECT][TOP]))
-            )
+            else
             {
-                tY = stdMath.round(sign(deltaY) * 1.2 * dragged[$].r[HEIGHT]);
+                if (
+                    (VERTICAL !== TYPE)
+                    && ((0 < deltaX
+                    && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 >= scrollParent[$][RECT][RIGHT])
+                    || (0 > deltaX
+                    && 0 < scrollParent[SLEFT]
+                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 <= scrollParent[$][RECT][LEFT]))
+                )
+                {
+                    tX = stdMath.round(sign(deltaX) * 2 * dragged[$].r[WIDTH]);
+                }
+                if (
+                    (HORIZONTAL !== TYPE)
+                    && ((0 < deltaY
+                    && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 >= scrollParent[$][RECT][BOTTOM])
+                    || (0 > deltaY
+                    && 0 < scrollParent[STOP]
+                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 <= scrollParent[$][RECT][TOP]))
+                )
+                {
+                    tY = stdMath.round(sign(deltaY) * 2 * dragged[$].r[HEIGHT]);
+                }
             }
             if (tX || tY) scrolling = (function(tX, tY, tS, dt) {
                     var sT = scrollParent[STOP] || 0, sL = scrollParent[SLEFT] || 0,
                         duration = 0, vX = tX / (tS || dt), vY = tY / (tS || dt);
                     return setInterval(function() {
-                        sT += vY * dt; sL += vX * dt; duration += dt;
-                        scrollParent[STOP] = stdMath.max(0, sT);
-                        scrollParent[SLEFT] = stdMath.max(0, sL);
+                        duration += dt;
+                        scrollBy(scrollParent, stdMath.round(vX * dt), stdMath.round(vY * dt))
+                        //sT += vY * dt; sL += vX * dt;
+                        //scrollParent[STOP] = stdMath.max(0, sT);
+                        //scrollParent[SLEFT] = stdMath.max(0, sL);
                         if (duration >= tS)
                         {
                             clearInterval(scrolling);
