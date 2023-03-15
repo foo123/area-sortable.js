@@ -61,9 +61,9 @@ function hasEventOptions()
     }
     return passiveSupported;
 }
-function sign(x)
+function sign(x, signOfZero)
 {
-    return 0 > x ? -1 : (0 < x ? 1 : 0);
+    return 0 > x ? -1 : (0 < x ? 1 : (signOfZero || 0));
 }
 function hasClass(el, className)
 {
@@ -98,18 +98,6 @@ function removeEvent(target, event, handler, options)
 function scrollingElement(document)
 {
     return document.scrollingElement || document.documentElement || document.body;
-}
-function scrollBy(el, dx, dy)
-{
-    if (el.scrollBy)
-    {
-        el.scrollBy({left:(dx || 0), top:(dy || 0), behavior:'instant'});
-    }
-    else if (null != el[SLEFT] && null != el[STOP])
-    {
-        el[SLEFT] += (dx || 0);
-        el[STOP] += (dy || 0);
-    }
 }
 function computedStyle(el)
 {
@@ -405,7 +393,7 @@ function setup(self, TYPE)
     var attached = false, canHandle = false, isDraggingStarted = false, isTouch = false,
         placeholder, dragged, handler, closest,
         first, last, items, lines, scrollEl, scrollParent, parent,
-        X0, Y0, lastX, lastY, scrolling = null, scroll, dir, overlap, moved,
+        X0, Y0, lastX, lastY, lastDeltaX, lastDeltaY, scrolling = null, scroll, dir, overlap, moved,
         delay = 60, fps = 60, dt = 1000 / fps, move, intersect, hasSymmetricItems = false,
         size = HORIZONTAL === TYPE ? WIDTH : HEIGHT,
         axis = HORIZONTAL === TYPE ? LEFT : TOP,
@@ -419,6 +407,7 @@ function setup(self, TYPE)
         closest = null;
         first = null;
         last = null;
+        scrollEl = null;
         scrollParent = null;
         parent = null;
         items = null;
@@ -463,7 +452,7 @@ function setup(self, TYPE)
                 left0: parent[SLEFT] || 0
             },
             $: computedStyle(parent),
-            style: storeStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom'])
+            style: storeStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom', 'max-width', 'max-height'/*, 'overflow'*/])
         };
         parent[$][PADDING] = {
             left: int(parent[$].$.paddingLeft) || 0,
@@ -558,6 +547,8 @@ function setup(self, TYPE)
         parent[STYLE].boxSizing = 'border-box';
         parent[STYLE][WIDTH] = Str(parent[$][RECT][WIDTH]) + 'px';
         parent[STYLE][HEIGHT] = Str(parent[$][RECT][HEIGHT]) + 'px';
+        parent[STYLE].maxWidth = Str(parent[$][RECT][WIDTH]) + 'px';
+        parent[STYLE].maxHeight = Str(parent[$][RECT][HEIGHT]) + 'px';
         dragged.draggable = false; // disable native drag
         addClass(dragged, self.options.activeItem || 'dnd-sortable-dragged');
         hasSymmetricItems = true;
@@ -634,7 +625,7 @@ function setup(self, TYPE)
                 placeholder[$] = null;
             }
             removeClass(parent, self.options.activeArea || 'dnd-sortable-area');
-            restoreStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom'], parent[$].style);
+            restoreStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom', 'max-width', 'max-height'/*, 'overflow'*/], parent[$].style);
             if (closest) removeClass(closest, self.options.closestItem || 'dnd-sortable-closest');
             removeClass(dragged, self.options.activeItem || 'dnd-sortable-dragged');
             items.forEach(function(el) {
@@ -927,6 +918,8 @@ function setup(self, TYPE)
 
         lastX = isTouch ? e.touches[0].clientX : e.clientX;
         lastY = isTouch ? e.touches[0].clientY : e.clientY;
+        lastDeltaX = 0;
+        lastDeltaY = 0;
         X0 = lastX;
         Y0 = lastY;
 
@@ -942,7 +935,8 @@ function setup(self, TYPE)
 
     var dragMove = throttle(function(e) {
         var hovered, p = 0.0, Y, X, deltaX, deltaY, delta, centerX, centerY,
-            c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z, d = 25, tX = 0, tY = 0;
+            c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z,
+            d1, d2, d3, d4, sx, sy, tX = 0, tY = 0;
 
         if (VERTICAL === TYPE)
         {
@@ -955,6 +949,8 @@ function setup(self, TYPE)
 
         deltaX = X - lastX;
         deltaY = Y - lastY;
+        lastDeltaX = 0 === lastDeltaX ? deltaX : lastDeltaX;
+        lastDeltaY = 0 === lastDeltaY ? deltaY : lastDeltaY;
         lastX = X;
         lastY = Y;
 
@@ -972,71 +968,64 @@ function setup(self, TYPE)
             dragged[STYLE][LEFT] = Str(dragged[$].r[LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - dragged[$][MARGIN][LEFT] + scroll[LEFT]) + 'px';
         }
 
-        if (self.options.autoscroll && scrollParent && !scrolling)
+        if (self.options.autoscroll && scrollParent && (!scrolling || 0 > deltaX*lastDeltaX || 0 > deltaY*lastDeltaY))
         {
+            if (scrolling)
+            {
+                clearInterval(scrolling);
+                scrolling = null;
+            }
             if (scrollEl === scrollParent)
             {
-                if (
-                    (VERTICAL !== TYPE)
-                    && ((0 < deltaX
-                    && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 >= scrollParent[$][RECT][WIDTH])
-                    || (0 > deltaX
-                    && 0 < scrollParent[SLEFT]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 <= 0))
-                )
-                {
-                    tX = stdMath.round(sign(deltaX) * 3 * dragged[$].r[WIDTH]);
-                }
-                if (
-                    (HORIZONTAL !== TYPE)
-                    && ((0 < deltaY
-                    && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 >= scrollParent[$][RECT][HEIGHT])
-                    || (0 > deltaY
-                    && 0 < scrollParent[STOP]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 <= 0))
-                )
-                {
-                    tY = stdMath.round(sign(deltaY) * 3 * dragged[$].r[HEIGHT]);
-                }
+                d1 = scrollParent[$][RECT][WIDTH];
+                d2 = 0;
+                d3 = scrollParent[$][RECT][HEIGHT];
+                d4 = 0;
+                sx = 2;
+                sy = 2;
             }
             else
             {
-                if (
-                    (VERTICAL !== TYPE)
-                    && ((0 < deltaX
-                    && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 >= scrollParent[$][RECT][RIGHT])
-                    || (0 > deltaX
-                    && 0 < scrollParent[SLEFT]
-                    && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 <= scrollParent[$][RECT][LEFT]))
-                )
-                {
-                    tX = stdMath.round(sign(deltaX) * 2 * dragged[$].r[WIDTH]);
-                }
-                if (
-                    (HORIZONTAL !== TYPE)
-                    && ((0 < deltaY
-                    && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 >= scrollParent[$][RECT][BOTTOM])
-                    || (0 > deltaY
-                    && 0 < scrollParent[STOP]
-                    && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 <= scrollParent[$][RECT][TOP]))
-                )
-                {
-                    tY = stdMath.round(sign(deltaY) * 2 * dragged[$].r[HEIGHT]);
-                }
+                d1 = scrollParent[$][RECT][RIGHT];
+                d2 = scrollParent[$][RECT][LEFT];
+                d3 = scrollParent[$][RECT][BOTTOM];
+                d4 = scrollParent[$][RECT][TOP];
+                sx = 1.5;
+                sy = 1.5;
+            }
+            if (
+                (VERTICAL !== TYPE)
+                && ((0 < deltaX
+                && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
+                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] + deltaX >= d1)
+                || (0 > deltaX
+                && 0 < scrollParent[SLEFT]
+                && dragged[$].r[LEFT] + deltaX <= d2))
+            )
+            {
+                tX = stdMath.round(sign(deltaX) * sx * dragged[$].r[WIDTH]);
+            }
+            if (
+                (HORIZONTAL !== TYPE)
+                && ((0 < deltaY
+                && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
+                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] + deltaY >= d3)
+                || (0 > deltaY
+                && 0 < scrollParent[STOP]
+                && dragged[$].r[TOP] + deltaY <= d4))
+            )
+            {
+                tY = stdMath.round(sign(deltaY) * sy * dragged[$].r[HEIGHT]);
             }
             if (tX || tY) scrolling = (function(tX, tY, tS, dt) {
                     var sT = scrollParent[STOP] || 0, sL = scrollParent[SLEFT] || 0,
                         duration = 0, vX = tX / (tS || dt), vY = tY / (tS || dt);
                     return setInterval(function() {
                         duration += dt;
-                        scrollBy(scrollParent, stdMath.round(vX * dt), stdMath.round(vY * dt))
-                        //sT += vY * dt; sL += vX * dt;
-                        //scrollParent[STOP] = stdMath.max(0, sT);
-                        //scrollParent[SLEFT] = stdMath.max(0, sL);
+                        sT += vY * dt;
+                        sL += vX * dt;
+                        scrollParent[STOP] = stdMath.max(0, sT);
+                        scrollParent[SLEFT] = stdMath.max(0, sL);
                         if (duration >= tS)
                         {
                             clearInterval(scrolling);
@@ -1046,6 +1035,8 @@ function setup(self, TYPE)
                 })(stdMath.abs(tX) > stdMath.abs(tY) ? tX : 0, stdMath.abs(tY) >= stdMath.abs(tX) ? tY : 0, self.options.scrollAnimationMs || 0, dt);
         }
 
+        lastDeltaX = deltaX;
+        lastDeltaY = deltaY;
         // correct
         centerX = dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2;
         centerY = dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2;

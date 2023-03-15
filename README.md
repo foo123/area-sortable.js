@@ -29,6 +29,10 @@ Simple and light-weight JavaScript class for handling smooth drag-and-drop sorta
 
 [![Horizontal Sortable with autoscroll](/scroll-horizontal-auto.gif)](https://foo123.github.io/examples/area-sortable/)
 
+**Unrestricted Sortable with autoscroll (symmetric)**
+
+[![Unrestricted Sortable with autoscroll](/scroll-symmetric2-auto.gif)](https://foo123.github.io/examples/area-sortable/)
+
 
 
 **Live Demo**
