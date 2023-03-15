@@ -1,7 +1,7 @@
 /**
 *  area-sortable.js
 *  A simple js class to sort elements of an area smoothly using drag-and-drop (desktop and mobile)
-*  @VERSION: 1.2.0
+*  @VERSION: 1.2.1
 *
 *  https://github.com/foo123/area-sortable.js
 *
@@ -19,8 +19,8 @@ else
 }('undefined' !== typeof self ? self : this, 'AreaSortable', function(undef) {
 "use strict";
 
-var VERSION = '1.2.0', $ = '$areaSortable',
-    RECT = 'rect', STYLE = 'style',
+var VERSION = '1.2.1', $ = '$areaSortable',
+    RECT = 'rect', SCROLL = 'scroll', STYLE = 'style',
     MARGIN = 'margin', PADDING = 'padding',
     LEFT = 'left', RIGHT = 'right', WIDTH = 'width',
     TOP = 'top', BOTTOM = 'bottom', HEIGHT = 'height',
@@ -95,13 +95,17 @@ function removeEvent(target, event, handler, options)
     if (target.detachEvent) target.detachEvent('on' + event, handler);
     else target.removeEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
 }
+function scrollingElement(document)
+{
+    return document.scrollingElement || document.documentElement || document.body;
+}
 function computedStyle(el)
 {
-    return ('function' === typeof(window.getComputedStyle) ? window.getComputedStyle(el) : el.currentStyle) || {};
+    return ('function' === typeof(window.getComputedStyle) ? window.getComputedStyle(el, null) : el.currentStyle) || {};
 }
-function elementsAt(DOC, x, y)
+function elementsAt(document, x, y)
 {
-    return DOC.elementsFromPoint(x, y);
+    return document.elementsFromPoint(x, y);
 }
 function closestElement(el, className)
 {
@@ -112,7 +116,7 @@ function closestElement(el, className)
         el = el.parentNode;
     }
 }
-function throttle(f, limit)
+function throttle(f, interval)
 {
     var inThrottle = false;
     return function() {
@@ -121,7 +125,7 @@ function throttle(f, limit)
         {
             f.apply(context, args);
             inThrottle = true;
-            setTimeout(function(){inThrottle = false;}, limit);
+            setTimeout(function() {inThrottle = false;}, interval);
         }
     };
 }
@@ -280,18 +284,15 @@ function layout1(el, line, parent, movedNode, placeholder, scroll, axis, size, a
         {
             if (el[$] && el[$].animation) el[$].animation.stop();
             end = el[$][MARGIN][axis] + el[$][RECT][size] + el[$][MARGIN][axis_opposite];
-            if ((0 < runningEnd) && (parent[PADDING][axis] + runningEnd + end + parent[PADDING][axis_opposite] > parent[size]))
+            if ((0 < runningEnd) && (parent[$][PADDING][axis] + runningEnd + end + parent[$][PADDING][axis_opposite] > parent[$][RECT][size]))
             {
                 line++;
                 runningEnd = 0;
             }
             el[$].line = line;
             el[$].prev[axis] = el[$][RECT][axis];
-            el[$][RECT][axis] = parent[axis] + parent[PADDING][axis] + runningEnd + el[$][MARGIN][axis];
-            if (el === movedNode)
-                placeholder[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis] - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
-            else
-                el[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis]*/ - el[$][MARGIN][axis] - parent[axis]) + 'px';
+            el[$][RECT][axis] = parent[$][RECT][axis] /*- parent[$][SCROLL][axis]*/ + parent[$][PADDING][axis] + runningEnd + el[$][MARGIN][axis] /*- scroll[axis]*/;
+            (el === movedNode ? placeholder : el)[STYLE][axis] = Str(el[$][RECT][axis] - parent[$][RECT][axis] /*+ parent[$][SCROLL][axis]*/ - (el === movedNode ? 0 : el[$][MARGIN][axis])) + 'px';
             runningEnd += end;
         }
         el = el[NEXT];
@@ -336,26 +337,28 @@ function layout2(el, lines, parent, movedNode, placeholder, scroll, axis, size, 
             {
                 // TODO: support more vertical align options
                 case 'bottom':
-                    el[$][RECT][axis] = parent[axis] + lines[line + 1] - el[$][RECT][size] - el[$][MARGIN][axis_opposite];
+                    el[$][RECT][axis] = parent[$][RECT][axis] /*- parent[$][SCROLL][axis]*/ + lines[line + 1] - el[$][RECT][size] - el[$][MARGIN][axis_opposite] /*- scroll[axis]*/;
                     break;
                 case 'top':
                 default:
-                    el[$][RECT][axis] = parent[axis] + lineTop + el[$][MARGIN][axis];
+                    el[$][RECT][axis] = parent[$][RECT][axis] /*- parent[$][SCROLL][axis]*/ + lineTop + el[$][MARGIN][axis] /*- scroll[axis]*/;
                     break;
             }
-            if (el === movedNode)
-                placeholder[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis] - el[$][MARGIN][axis]*/ - parent[axis]) + 'px';
-            else
-                el[STYLE][axis] = Str(el[$][RECT][axis] /*- scroll[axis]*/ - el[$][MARGIN][axis] - parent[axis]) + 'px';
+            (el === movedNode ? placeholder : el)[STYLE][axis] = Str(el[$][RECT][axis] - (el === movedNode ? 0 : el[$][MARGIN][axis]) - parent[$][RECT][axis] /*+ parent[$][SCROLL][axis]*/) + 'px';
         }
         el = el[NEXT];
     }
 }
-function computeScroll(scrollParent)
+function computeScroll(parent, scrollParent)
 {
-    return {
-        top: (scrollParent ? (scrollParent[STOP] - scrollParent[$].scroll[TOP]) : 0) || 0,
-        left: (scrollParent ? (scrollParent[SLEFT] - scrollParent[$].scroll[LEFT]) : 0) || 0
+    //parent[$][SCROLL][TOP] = parent[STOP];
+    //parent[$][SCROLL][LEFT] = parent[SLEFT];
+    return scrollParent ? {
+        top: (scrollParent[STOP] - scrollParent[$][SCROLL].top0) || 0,
+        left: (scrollParent[SLEFT] - scrollParent[$][SCROLL].left0) || 0
+    } : {
+        top: 0,
+        left: 0
     };
 }
 function concat(a)
@@ -369,16 +372,27 @@ function canScroll(el, axis)
     if (0 === el[axis])
     {
         el[axis] = 1;
-        if (1 === el[axis]) {el[axis] = 0; return true;}
+        if (1 === el[axis])
+        {
+            el[axis] = 0;
+            return true;
+        }
+        else
+        {
+            return false;
+        }
     }
-    else return true;
+    else
+    {
+        return true;
+    }
 }
 
 function setup(self, TYPE)
 {
     var attached = false, canHandle = false, isDraggingStarted = false, isTouch = false,
-        placeholder, dragged, handler, closest, first, last, items, lines,
-        scrollParent, parent, parentRect, parentComputedStyle, parentStyle,
+        placeholder, dragged, handler, closest,
+        first, last, items, lines, scrollParent, parent,
         X0, Y0, lastX, lastY, scrolling = null, scroll, dir, overlap, moved,
         delay = 60, fps = 60, dt = 1000 / fps, move, intersect, hasSymmetricItems = false,
         size = HORIZONTAL === TYPE ? WIDTH : HEIGHT,
@@ -395,9 +409,6 @@ function setup(self, TYPE)
         last = null;
         scrollParent = null;
         parent = null;
-        parentRect = null;
-        parentStyle = null;
-        parentComputedStyle = null;
         items = null;
         lines = null;
         DOC = null;
@@ -406,17 +417,18 @@ function setup(self, TYPE)
     };
 
     var prepare = function() {
-        var line = 0, runningEnd = 0, mrg = 0, axis = LEFT, size = WIDTH, axis_opposite = RIGHT,
+        var line = 0, runningEnd = 0, mrg = 0, scrollEl = scrollingElement(DOC),
+            axis = LEFT, size = WIDTH, axis_opposite = RIGHT,
             tag = (parent.tagName || '').toLowerCase();
 
         scrollParent = null;
-        if (self.opts.autoscroll)
+        if (self.options.autoscroll)
         {
             scrollParent = parent;
             while (scrollParent)
             {
                 if (
-                    (DOC.scrollingElement === scrollParent)
+                    (scrollEl === scrollParent)
                     || ((HORIZONTAL !== TYPE)
                     && (scrollParent.scrollHeight > scrollParent.clientHeight)
                     && canScroll(scrollParent, STOP))
@@ -427,22 +439,35 @@ function setup(self, TYPE)
                 scrollParent = scrollParent.parentNode;
             }
         }
-        parentStyle = storeStyle(parent, ['width', 'height', 'box-sizing']);
-        parentComputedStyle = computedStyle(parent);
-        parentRect = parent.getBoundingClientRect();
-        parentRect[PADDING] = {
-            left: int(parentComputedStyle.paddingLeft) || 0,
-            right: int(parentComputedStyle.paddingRight) || 0
+        parent[$] = {
+            rect: parent.getBoundingClientRect(),
+            scroll: {
+                top: parent[STOP] || 0,
+                left: parent[SLEFT] || 0,
+                width: parent.scrollWidth,
+                height: parent.scrollHeight,
+                top0: parent[STOP] || 0,
+                left0: parent[SLEFT] || 0
+            },
+            $: computedStyle(parent),
+            style: storeStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom'])
         };
-        if (scrollParent)
+        parent[$][PADDING] = {
+            left: int(parent[$].$.paddingLeft) || 0,
+            right: int(parent[$].$.paddingRight) || 0
+        };
+        if (scrollParent && (scrollParent !== parent))
         {
+
             scrollParent[$] = {
                 rect: scrollParent.getBoundingClientRect(),
                 scroll: {
                     top: scrollParent[STOP] || 0,
                     left: scrollParent[SLEFT] || 0,
                     width: scrollParent.scrollWidth,
-                    height: scrollParent.scrollHeight
+                    height: scrollParent.scrollHeight,
+                    top0: scrollParent[STOP] || 0,
+                    left0: scrollParent[SLEFT] || 0
                 }
             };
         }
@@ -489,7 +514,7 @@ function setup(self, TYPE)
             // and row-first ordering instead of column-first (default browser element ordering)
             end = el[$][MARGIN][axis] + el[$][RECT][size] + el[$][MARGIN][axis_opposite];
              // does not miss lines
-            if ((0 < runningEnd) && (parentRect[PADDING][axis] + runningEnd + end + parentRect[PADDING][axis_opposite] > parentRect[size]))
+            if ((0 < runningEnd) && (parent[$][PADDING][axis] + runningEnd + end + parent[$][PADDING][axis_opposite] > parent[$][RECT][size]))
             {
                 line++;
                 runningEnd = 0;
@@ -509,27 +534,27 @@ function setup(self, TYPE)
         axis = TOP; size = HEIGHT; axis_opposite = BOTTOM;
         // at most so many lines as items, pre-allocate mem to avoid changing array size all the time
         lines = new Array(items.length);
-        items.forEach(function(el){
+        items.forEach(function(el) {
             // take 1st (highest) element of each line to define the visual line start position
             // take care of margin bottom/top collapse between siblings and parent/child
-            var lineNum = el[$].line, lineStart = el[$][RECT][axis] - el[$][MARGIN][axis] - parentRect[axis];
+            var lineNum = el[$].line, lineStart = el[$][RECT][axis] - el[$][MARGIN][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis];
             lines[lineNum] = null == lines[lineNum] ? lineStart : stdMath.min(lineStart, lines[lineNum]);
         });
 
-        addClass(parent, self.opts.activeArea || 'dnd-sortable-area');
+        addClass(parent, self.options.activeArea || 'dnd-sortable-area');
         parent[STYLE].boxSizing = 'border-box';
-        parent[STYLE][WIDTH] = Str(parentRect[WIDTH]) + 'px';
-        parent[STYLE][HEIGHT] = Str(parentRect[HEIGHT]) + 'px';
+        parent[STYLE][WIDTH] = Str(parent[$][RECT][WIDTH]) + 'px';
+        parent[STYLE][HEIGHT] = Str(parent[$][RECT][HEIGHT]) + 'px';
         dragged.draggable = false; // disable native drag
-        addClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
+        addClass(dragged, self.options.activeItem || 'dnd-sortable-dragged');
         hasSymmetricItems = true;
         items.forEach(function(el) {
             var ref = items[0];
             el[STYLE].position = 'absolute';
             el[STYLE].boxSizing = 'border-box';
             el[STYLE].overflow = 'hidden';
-            el[STYLE][TOP] = Str(el[$][RECT][TOP] - parentRect[TOP] - el[$][MARGIN][TOP]) + 'px';
-            el[STYLE][LEFT] = Str(el[$][RECT][LEFT] - parentRect[LEFT] - el[$][MARGIN][LEFT]) + 'px';
+            el[STYLE][TOP] = Str(el[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - el[$][MARGIN][TOP]) + 'px';
+            el[STYLE][LEFT] = Str(el[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - el[$][MARGIN][LEFT]) + 'px';
             el[STYLE][WIDTH] = Str(el[$][RECT][WIDTH]) + 'px';
             el[STYLE][HEIGHT] = Str(el[$][RECT][HEIGHT]) + 'px';
             if (
@@ -543,11 +568,21 @@ function setup(self, TYPE)
                 hasSymmetricItems = false;
         });
         placeholder = DOC.createElement('ul' === tag || 'ol' === tag ? 'li' : ('tr' === tag ? 'td' : ('tbody' === tag || 'thead' === tag || 'tfoot' === tag || 'table' === tag ? 'tr' : 'span')));
-        addClass(placeholder, self.opts.placeholder || 'dnd-sortable-placeholder');
+        addClass(placeholder, self.options.placeholder || 'dnd-sortable-placeholder');
         placeholder[STYLE].position = 'absolute';
         placeholder[STYLE].display = 'block';
         placeholder[STYLE].boxSizing = 'border-box';
         placeholder[STYLE].margin = '0';
+        if (parent === scrollParent)
+        {
+            // make parent keep its scroll dimensions
+            parent[STYLE].paddingLeft = Str(parent[$][SCROLL][WIDTH] - parent[$][RECT][WIDTH]) + 'px';
+            parent[STYLE].paddingTop = Str(parent[$][SCROLL][HEIGHT] - parent[$][RECT][HEIGHT]) + 'px';
+            parent[STYLE].paddingRight = '0px';
+            parent[STYLE].paddingBottom = '0px';
+            parent[SLEFT] = parent[$][SCROLL][LEFT];
+            parent[STOP] = parent[$][SCROLL][TOP];
+        }
         if (isTouch)
         {
             addEvent(DOC, 'touchmove', dragMove, false);
@@ -585,12 +620,10 @@ function setup(self, TYPE)
                 placeholder.parentNode.removeChild(placeholder);
                 placeholder[$] = null;
             }
-            if (scrollParent) scrollParent[$] = null;
-            parent[$] = null;
-            removeClass(parent, self.opts.activeArea || 'dnd-sortable-area');
-            restoreStyle(parent, ['width', 'height', 'box-sizing'], parentStyle);
-            if (closest) removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
-            removeClass(dragged, self.opts.activeItem || 'dnd-sortable-dragged');
+            removeClass(parent, self.options.activeArea || 'dnd-sortable-area');
+            restoreStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom'], parent[$].style);
+            if (closest) removeClass(closest, self.options.closestItem || 'dnd-sortable-closest');
+            removeClass(dragged, self.options.activeItem || 'dnd-sortable-dragged');
             items.forEach(function(el) {
                 restoreStyle(el, [
                     'position',
@@ -606,8 +639,8 @@ function setup(self, TYPE)
                 /*if ('absolute' === el[$].$.position)
                 {
                     // item has probably moved, update the final position
-                    el[STYLE][TOP] = Str(el[$][RECT][TOP] - parentRect[TOP] - el[$][MARGIN][TOP]) + 'px';
-                    el[STYLE][LEFT] = Str(el[$][RECT][LEFT] - parentRect[LEFT] - el[$][MARGIN][LEFT]) + 'px';
+                    el[STYLE][TOP] = Str(el[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - el[$][MARGIN][TOP]) + 'px';
+                    el[STYLE][LEFT] = Str(el[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - el[$][MARGIN][LEFT]) + 'px';
                 }
                 else if ('fixed' === el[$].$.position)
                 {
@@ -617,6 +650,8 @@ function setup(self, TYPE)
                 }*/
                 el[$] = null;
             });
+            parent[$] = null;
+            if (scrollParent) scrollParent[$] = null;
             isDraggingStarted = false;
         }
     };
@@ -655,8 +690,8 @@ function setup(self, TYPE)
             moveTo(movedNode, refNode, dir);
             movedNode[$].prev[axis] = movedNode[$][RECT][axis];
             margin = movedNode[$][MARGIN][axis] - refNode[$][MARGIN][axis];
-            movedNode[$][RECT][axis] = refNode[$][RECT][axis] + margin;
-            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis]) + 'px';
+            movedNode[$][RECT][axis] = refNode[$][RECT][axis] + margin /*- scroll[axis]*/;
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] /*+ scroll[axis]*/) + 'px';
             delta = movedNode[$][RECT][size] - refNode[$][RECT][size];
             margin += movedNode[$][MARGIN][axis_opposite] - refNode[$][MARGIN][axis_opposite];
             while ((next = refNode[NEXT]) && (next !== limitNode))
@@ -665,17 +700,17 @@ function setup(self, TYPE)
                 refNode[$].index++;
                 refNode[$].prev[axis] = refNode[$][RECT][axis];
                 margin += refNode[$][MARGIN][axis] - next[$][MARGIN][axis];
-                refNode[$][RECT][axis] = next[$][RECT][axis] + delta + margin;
+                refNode[$][RECT][axis] = next[$][RECT][axis] + delta + margin /*- scroll[axis]*/;
                 margin += refNode[$][MARGIN][axis_opposite] - next[$][MARGIN][axis_opposite];
-                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
+                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis] /*+ scroll[axis]*/) + 'px';
                 delta += refNode[$][RECT][size] - next[$][RECT][size];
                 refNode = next;
             }
             if (refNode[$].animation) refNode[$].animation.stop();
             refNode[$].index++;
             refNode[$].prev[axis] = refNode[$][RECT][axis];
-            refNode[$][RECT][axis] = movedNode[$].prev[axis] + delta + margin - movedNode[$][MARGIN][axis] + refNode[$][MARGIN][axis];
-            refNode[STYLE][axis] = Str(refNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
+            refNode[$][RECT][axis] = movedNode[$].prev[axis] + delta + margin - movedNode[$][MARGIN][axis] + refNode[$][MARGIN][axis] /*- scroll[axis]*/;
+            refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis] /*+ scroll[axis]*/) + 'px';
         }
         else if (0 < dir)
         {
@@ -692,16 +727,16 @@ function setup(self, TYPE)
                 refNode[$].index--;
                 refNode[$].prev[axis] = refNode[$][RECT][axis];
                 margin += refNode[$][MARGIN][axis] - next[$][MARGIN][axis];
-                refNode[$][RECT][axis] = next[$].prev[axis] + delta + margin;
-                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis] - refNode[$][MARGIN][axis]) + 'px';
+                refNode[$][RECT][axis] = next[$].prev[axis] + delta + margin /*- scroll[axis]*/;
+                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis] /*+ scroll[axis]*/) + 'px';
                 delta += -(next[$][RECT][size] - refNode[$][RECT][size]);
                 margin += refNode[$][MARGIN][axis_opposite] - next[$][MARGIN][axis_opposite];
                 next = refNode;
                 refNode = refNode[NEXT];
             }
             while ((refNode) && (refNode !== placeholder));
-            movedNode[$][RECT][axis] = next[$].prev[axis] + delta + margin - next[$][MARGIN][axis] + movedNode[$][MARGIN][axis];
-            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] /*- scroll[axis]*/ - parentRect[axis]) + 'px';
+            movedNode[$][RECT][axis] = next[$].prev[axis] + delta + margin - next[$][MARGIN][axis] + movedNode[$][MARGIN][axis] /*- scroll[axis]*/;
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] /*+ scroll[axis]*/) + 'px';
         }
         offset = {};
         offset[axis] = target[$][RECT][axis] - target[$].prev[axis];
@@ -723,8 +758,8 @@ function setup(self, TYPE)
                 movedNode[$].line = refNode[$].line;
                 movedNode[$][RECT][TOP] = refNode[$][RECT][TOP];
                 movedNode[$][RECT][LEFT] = refNode[$][RECT][LEFT];
-                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP]) + 'px';
-                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT]) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/) + 'px';
                 while ((next = refNode[NEXT]) && (next !== limitNode))
                 {
                     if (refNode[$].animation) refNode[$].animation.stop();
@@ -735,8 +770,8 @@ function setup(self, TYPE)
                     refNode[$].line = next[$].line;
                     refNode[$][RECT][TOP] = next[$][RECT][TOP];
                     refNode[$][RECT][LEFT] = next[$][RECT][LEFT];
-                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
-                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
+                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/ - refNode[$][MARGIN][TOP]) + 'px';
+                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/ - refNode[$][MARGIN][LEFT]) + 'px';
                     refNode = next;
                 }
                 if (refNode[$].animation) refNode[$].animation.stop();
@@ -747,8 +782,8 @@ function setup(self, TYPE)
                 refNode[$].line = movedNode[$].prev.line;
                 refNode[$][RECT][TOP] = movedNode[$].prev[TOP];
                 refNode[$][RECT][LEFT] = movedNode[$].prev[LEFT];
-                refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
-                refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
+                refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/ - refNode[$][MARGIN][TOP]) + 'px';
+                refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
             }
             else if (0 < dir)
             {
@@ -769,8 +804,8 @@ function setup(self, TYPE)
                     refNode[$].line = next[$].prev.line;
                     refNode[$][RECT][TOP] = next[$].prev[TOP];
                     refNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP] - refNode[$][MARGIN][TOP]) + 'px';
-                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
+                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/ - refNode[$][MARGIN][TOP]) + 'px';
+                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/ - refNode[$][MARGIN][LEFT]) + 'px';
                     next = refNode;
                     refNode = refNode[NEXT];
                 }
@@ -778,8 +813,8 @@ function setup(self, TYPE)
                 movedNode[$].line = next[$].prev.line;
                 movedNode[$][RECT][TOP] = next[$].prev[TOP];
                 movedNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] /*- scroll[TOP]*/ - parentRect[TOP]) + 'px';
-                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] /*- scroll[LEFT]*/ - parentRect[LEFT]) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/) + 'px';
             }
             animate(target, ms, {
                 top: target[$][RECT][TOP] - target[$].prev[TOP],
@@ -805,8 +840,8 @@ function setup(self, TYPE)
             line = limitNode[$].line;
             limitNode = lineStart(limitNode, line);
             // update layout
-            layout1(limitNode, line, parentRect, movedNode, placeholder, scroll, LEFT, WIDTH, RIGHT);
-            layout2(limitNode, lines, parentRect, movedNode, placeholder, scroll, TOP, HEIGHT, BOTTOM);
+            layout1(limitNode, line, parent, movedNode, placeholder, scroll, LEFT, WIDTH, RIGHT);
+            layout2(limitNode, lines, parent, movedNode, placeholder, scroll, TOP, HEIGHT, BOTTOM);
             animate(target, ms, {
                 top: target[$][RECT][TOP] - target[$].prev[TOP],
                 left: target[$][RECT][LEFT] - target[$].prev[LEFT]
@@ -818,7 +853,7 @@ function setup(self, TYPE)
     intersect = UNRESTRICTED === TYPE ? intersect2D : intersect1D;
 
     var dragStart = function(e) {
-        if (!canHandle || isDraggingStarted || !self.opts.container) return;
+        if (!canHandle || isDraggingStarted || !self.options.container) return;
         // not with right click
         if (mouse_evt.test(e.type) && (0 !== e.button)) return;
 
@@ -827,14 +862,14 @@ function setup(self, TYPE)
         handler = e.target;
         if (
             !handler
-            || !hasClass(handler, self.opts.handle || 'dnd-sortable-handle')
+            || !hasClass(handler, self.options.handle || 'dnd-sortable-handle')
         )
         {
             clear();
             return;
         }
 
-        dragged = closestElement(handler, self.opts.item || 'dnd-sortable-item');
+        dragged = closestElement(handler, self.options.item || 'dnd-sortable-item');
         if (!dragged)
         {
             clear();
@@ -844,22 +879,22 @@ function setup(self, TYPE)
         parent = dragged.parentNode;
         if (
             !parent
-            || (('string' === typeof(self.opts.container))
-            && (parent.id !== self.opts.container))
-            || (('string' !== typeof(self.opts.container))
-            && (parent !== self.opts.container))
+            || (('string' === typeof(self.options.container))
+            && (parent.id !== self.options.container))
+            || (('string' !== typeof(self.options.container))
+            && (parent !== self.options.container))
         )
         {
             clear();
             return;
         }
 
-        if ('function' === typeof self.opts.onStart)
-            self.opts.onStart(dragged);
+        if ('function' === typeof self.options.onStart)
+            self.options.onStart(dragged);
 
-        if ('function' === typeof self.opts.itemFilter)
+        if ('function' === typeof self.options.itemFilter)
         {
-            dragged = self.opts.itemFilter(dragged);
+            dragged = self.options.itemFilter(dragged);
             if (!dragged)
             {
                 clear();
@@ -873,23 +908,23 @@ function setup(self, TYPE)
         e.stopPropagation && e.stopPropagation();
         e.stopImmediatePropagation && e.stopImmediatePropagation();
 
-        isTouch = e.changedTouches && e.changedTouches.length;
+        isTouch = e.touches && e.touches.length;
 
         prepare();
 
-        lastX = isTouch ? e.changedTouches[0].clientX : e.clientX;
-        lastY = isTouch ? e.changedTouches[0].clientY : e.clientY;
-        X0 = lastX + parentRect[LEFT] - dragged[$][RECT][LEFT] + dragged[$][MARGIN][LEFT];
-        Y0 = lastY + parentRect[TOP] - dragged[$][RECT][TOP] + dragged[$][MARGIN][TOP];
+        lastX = isTouch ? e.touches[0].clientX : e.clientX;
+        lastY = isTouch ? e.touches[0].clientY : e.clientY;
+        X0 = lastX;
+        Y0 = lastY;
 
         parent.insertBefore(placeholder, dragged);
         placeholder[STYLE][WIDTH] = Str(dragged[$][RECT][WIDTH]) + 'px';
         placeholder[STYLE][HEIGHT] = Str(dragged[$][RECT][HEIGHT]) + 'px';
-        placeholder[STYLE][TOP] = Str(dragged[$][RECT][TOP] - parentRect[TOP]) + 'px';
-        placeholder[STYLE][LEFT] = Str(dragged[$][RECT][LEFT] - parentRect[LEFT]) + 'px';
+        placeholder[STYLE][TOP] = Str(dragged[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP]) + 'px';
+        placeholder[STYLE][LEFT] = Str(dragged[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT]) + 'px';
 
-        if (HORIZONTAL !== TYPE) dragged[STYLE][TOP] = Str(lastY-Y0) + 'px';
-        if (VERTICAL !== TYPE) dragged[STYLE][LEFT] = Str(lastX-X0) + 'px';
+        if (HORIZONTAL !== TYPE) dragged[STYLE][TOP] = Str(lastY - Y0 + dragged[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - dragged[$][MARGIN][TOP]) + 'px';
+        if (VERTICAL !== TYPE) dragged[STYLE][LEFT] = Str(lastX - X0 + dragged[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - dragged[$][MARGIN][LEFT]) + 'px';
     };
 
     var dragMove = throttle(function(e) {
@@ -902,56 +937,57 @@ function setup(self, TYPE)
             zs = HEIGHT;
         }
 
-        X = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX;
-        Y = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY;
+        X = e.touches && e.touches.length ? e.touches[0].clientX : e.clientX;
+        Y = e.touches && e.touches.length ? e.touches[0].clientY : e.clientY;
 
         deltaX = X - lastX;
         deltaY = Y - lastY;
         lastX = X;
         lastY = Y;
 
-        scroll = computeScroll(scrollParent);
-
+        scroll = computeScroll(parent, scrollParent);
         if (HORIZONTAL !== TYPE)
         {
-            dragged[STYLE][TOP] = Str(Y - Y0 + scroll[TOP]) + 'px';
-            dragged[$].r[TOP] = Y - Y0 + parentRect[TOP] + dragged[$][MARGIN][TOP];
+            // scroll needed here !!
+            dragged[$].r[TOP] = lastY - Y0 + dragged[$][RECT][TOP] - scroll[TOP];
+            dragged[STYLE][TOP] = Str(dragged[$].r[TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - dragged[$][MARGIN][TOP] + scroll[TOP]) + 'px';
         }
         if (VERTICAL !== TYPE)
         {
-            dragged[STYLE][LEFT] = Str(X - X0 + scroll[LEFT]) + 'px';
-            dragged[$].r[LEFT] = X - X0 + parentRect[LEFT] + dragged[$][MARGIN][LEFT];
+            // scroll needed here !!
+            dragged[$].r[LEFT] = lastX - X0 + dragged[$][RECT][LEFT] - scroll[LEFT];
+            dragged[STYLE][LEFT] = Str(dragged[$].r[LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - dragged[$][MARGIN][LEFT] + scroll[LEFT]) + 'px';
         }
 
-        if (self.opts.autoscroll && scrollParent && !scrolling)
+        if (self.options.autoscroll && scrollParent && !scrolling)
         {
             if (
                 (VERTICAL !== TYPE)
                 && ((0 < deltaX
-                && scrollParent[SLEFT] + scrollParent[$].rect[WIDTH] < scrollParent[$].scroll[WIDTH]
-                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 + d > scrollParent[$].rect[RIGHT])
+                && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
+                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 + d > scrollParent[$][RECT][RIGHT])
                 || (0 > deltaX
                 && 0 < scrollParent[SLEFT]
-                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 2 - d < scrollParent[$].rect[LEFT]))
+                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] / 4 - d < scrollParent[$][RECT][LEFT]))
             )
             {
-                tX = stdMath.round(sign(deltaX) * 1.5 * dragged[$].r[WIDTH]);
+                tX = stdMath.round(sign(deltaX) * 1.2 * dragged[$].r[WIDTH]);
             }
             if (
                 (HORIZONTAL !== TYPE)
                 && ((0 < deltaY
-                && scrollParent[STOP] + scrollParent[$].rect[HEIGHT] < scrollParent[$].scroll[HEIGHT]
-                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 + d > scrollParent[$].rect[BOTTOM])
+                && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
+                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 + d > scrollParent[$][RECT][BOTTOM])
                 || (0 > deltaY
                 && 0 < scrollParent[STOP]
-                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 2 - d < scrollParent[$].rect[TOP]))
+                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] / 4 - d < scrollParent[$][RECT][TOP]))
             )
             {
-                tY = stdMath.round(sign(deltaY) * 1.5 * dragged[$].r[HEIGHT]);
+                tY = stdMath.round(sign(deltaY) * 1.2 * dragged[$].r[HEIGHT]);
             }
             if (tX || tY) scrolling = (function(tX, tY, tS, dt) {
                     var sT = scrollParent[STOP] || 0, sL = scrollParent[SLEFT] || 0,
-                        duration = 0, vX = tX / tS, vY = tY / tS;
+                        duration = 0, vX = tX / (tS || dt), vY = tY / (tS || dt);
                     return setInterval(function() {
                         sT += vY * dt; sL += vX * dt; duration += dt;
                         scrollParent[STOP] = stdMath.max(0, sT);
@@ -962,7 +998,7 @@ function setup(self, TYPE)
                             scrolling = null;
                         }
                     }, dt);
-                })(stdMath.abs(tX) > stdMath.abs(tY) ? tX : 0, stdMath.abs(tY) >= stdMath.abs(tX) ? tY : 0, 800, dt);
+                })(stdMath.abs(tX) > stdMath.abs(tY) ? tX : 0, stdMath.abs(tY) >= stdMath.abs(tX) ? tY : 0, self.options.scrollAnimationMs || 0, dt);
         }
 
         // correct
@@ -1041,7 +1077,7 @@ function setup(self, TYPE)
             )
         )
         {
-            removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+            removeClass(closest, self.options.closestItem || 'dnd-sortable-closest');
             overlap = 0; closest = null;
         }
 
@@ -1061,21 +1097,25 @@ function setup(self, TYPE)
                 overlap = p;
                 if (p > 0.2)
                 {
-                    addClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                    addClass(closest, self.options.closestItem || 'dnd-sortable-closest');
                     if ((p > 0.5) && !moved)
                     {
+                        X0 -= dragged[$][RECT][LEFT];
+                        Y0 -= dragged[$][RECT][TOP];
                         moved = true;
-                        move(dragged, closest, dir, self.opts.animationMs || 0);
+                        move(dragged, closest, dir, self.options.animationMs || 0);
+                        X0 += dragged[$][RECT][LEFT];
+                        Y0 += dragged[$][RECT][TOP];
                     }
                 }
                 else
                 {
-                    removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                    removeClass(closest, self.options.closestItem || 'dnd-sortable-closest');
                 }
             }
             else
             {
-                removeClass(closest, self.opts.closestItem || 'dnd-sortable-closest');
+                removeClass(closest, self.options.closestItem || 'dnd-sortable-closest');
                 overlap = 0; closest = null;
             }
         }
@@ -1085,11 +1125,11 @@ function setup(self, TYPE)
         var el = dragged;
         restore();
         clear();
-        if ('function' === typeof self.opts.onEnd)
-            self.opts.onEnd(el);
+        if ('function' === typeof self.options.onEnd)
+            self.options.onEnd(el);
     };
 
-    self.start = self.opts.callable ? function() {
+    self.start = self.options.callable ? function() {
         if (canHandle) return;
         attached = false;
         canHandle = true;
@@ -1119,11 +1159,11 @@ function setup(self, TYPE)
     };
 }
 
-function AreaSortable(type, opts)
+function AreaSortable(type, options)
 {
     var self = this;
-    if (!(self instanceof AreaSortable)) return new AreaSortable(type, opts);
-    self.opts = opts || {};
+    if (!(self instanceof AreaSortable)) return new AreaSortable(type, options);
+    self.options = options || {};
     type = Str(type);
     switch (type.toLowerCase())
     {
@@ -1145,14 +1185,14 @@ function AreaSortable(type, opts)
 AreaSortable.VERSION = VERSION;
 AreaSortable.prototype = {
     constructor: AreaSortable
-    ,opts: null
+    ,options: null
     ,start: null
     ,handle: null
     ,stop: null
     ,dispose: function() {
         var self = this;
         if (self.stop) self.stop();
-        self.opts = null;
+        self.options = null;
         self.start = null;
         self.handle = null;
         self.stop = null;

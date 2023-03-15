@@ -3,27 +3,31 @@
 Simple and light-weight JavaScript class for handling smooth drag-and-drop sortable items of an area (Desktop and Mobile).
 
 
-**version 1.2.0** (14 kB minified)
+**version 1.2.1** (15 kB minified)
 
 
 **Vertical Sortable (symmetric/asymmetric)**
 
-[![Vertical sortable](/vertical.png)](https://foo123.github.io/examples/area-sortable/)
+[![Vertical sortable](/scroll-vertical.gif)](https://foo123.github.io/examples/area-sortable/)
 
 
 **Horizontal Sortable (symmetric/asymmetric)**
 
-[![Horizontal sortable](/horizontal.png)](https://foo123.github.io/examples/area-sortable/)
+[![Horizontal sortable](/scroll-horizontal.gif)](https://foo123.github.io/examples/area-sortable/)
 
 
 **Unrestricted Sortable (symmetric)**
 
-[![Unrestricted symmetric sortable](/unrestricted-sym.png)](https://foo123.github.io/examples/area-sortable/)
+[![Unrestricted symmetric sortable](/scroll-symmetric2.gif)](https://foo123.github.io/examples/area-sortable/)
 
 
 **Unrestricted Sortable (asymmetric)**
 
-[![Unrestricted asymmetric sortable](/unrestricted-asym.png)](https://foo123.github.io/examples/area-sortable/)
+[![Unrestricted asymmetric sortable](/scroll-asymmetric2.gif)](https://foo123.github.io/examples/area-sortable/)
+
+**Horizontal Sortable with autoscroll (symmetric/asymmetric)**
+
+[![Horizontal Sortable with autoscroll](/scroll-horizontal-auto.gif)](https://foo123.github.io/examples/area-sortable/)
 
 
 
