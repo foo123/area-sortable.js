@@ -1,7 +1,7 @@
 /**
 *  area-sortable.js
 *  A simple js class to sort elements of an area smoothly using drag-and-drop (desktop and mobile)
-*  @VERSION: 1.2.1
+*  @VERSION: 1.2.2
 *
 *  https://github.com/foo123/area-sortable.js
 *
@@ -19,7 +19,7 @@ else
 }('undefined' !== typeof self ? self : this, 'AreaSortable', function(undef) {
 "use strict";
 
-var VERSION = '1.2.1', $ = '$areaSortable',
+var VERSION = '1.2.2', $ = '$areaSortable',
     RECT = 'rect', SCROLL = 'scroll', STYLE = 'style',
     MARGIN = 'margin', PADDING = 'padding',
     LEFT = 'left', RIGHT = 'right', WIDTH = 'width',
@@ -44,6 +44,28 @@ if (
 )
     window.Element.prototype[$] = null;
 
+function sign(x, signOfZero)
+{
+    return 0 > x ? -1 : (0 < x ? 1 : (signOfZero || 0));
+}
+function concat(a)
+{
+    for (var i = 1, args = arguments, n = args.length; i < n; ++i)
+        a.push.apply(a, args[i]);
+    return a;
+}
+function throttle(f, interval)
+{
+    var inThrottle = false;
+    return function() {
+        if (!inThrottle)
+        {
+            f.apply(this, arguments);
+            inThrottle = true;
+            setTimeout(function() {inThrottle = false;}, interval);
+        }
+    };
+}
 function hasEventOptions()
 {
     var passiveSupported = false, options = {};
@@ -61,9 +83,18 @@ function hasEventOptions()
     }
     return passiveSupported;
 }
-function sign(x, signOfZero)
+function addEvent(target, event, handler, options)
 {
-    return 0 > x ? -1 : (0 < x ? 1 : (signOfZero || 0));
+    if (null == eventOptionsSupported) eventOptionsSupported = hasEventOptions();
+    if (target.attachEvent) target.attachEvent('on' + event, handler);
+    else target.addEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
+}
+function removeEvent(target, event, handler, options)
+{
+    if (null == eventOptionsSupported) eventOptionsSupported = hasEventOptions();
+    // if (el.removeEventListener) not working in IE11
+    if (target.detachEvent) target.detachEvent('on' + event, handler);
+    else target.removeEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
 }
 function hasClass(el, className)
 {
@@ -82,22 +113,29 @@ function removeClass(el, className)
     if (el.classList) el.classList.remove(className);
     else el.className = trim((' ' + el.className + ' ').replace(' ' + className + ' ', ' '));
 }
-function addEvent(target, event, handler, options)
-{
-    if (null == eventOptionsSupported) eventOptionsSupported = hasEventOptions();
-    if (target.attachEvent) target.attachEvent('on' + event, handler);
-    else target.addEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
-}
-function removeEvent(target, event, handler, options)
-{
-    if (null == eventOptionsSupported) eventOptionsSupported = hasEventOptions();
-    // if (el.removeEventListener) not working in IE11
-    if (target.detachEvent) target.detachEvent('on' + event, handler);
-    else target.removeEventListener(event, handler, eventOptionsSupported ? options : ('object' === typeof(options) ? !!options.capture : !!options));
-}
 function scrollingElement(document)
 {
     return document.scrollingElement || document.documentElement || document.body;
+}
+function canScroll(el, scrollAxis)
+{
+    if (0 === el[scrollAxis])
+    {
+        el[scrollAxis] = 1;
+        if (1 === el[scrollAxis])
+        {
+            el[scrollAxis] = 0;
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    else
+    {
+        return true;
+    }
 }
 function computedStyle(el)
 {
@@ -115,19 +153,6 @@ function closestElement(el, className)
         if (hasClass(el, className)) return el;
         el = el.parentNode;
     }
-}
-function throttle(f, interval)
-{
-    var inThrottle = false;
-    return function() {
-        var args = arguments, context = this;
-        if (!inThrottle)
-        {
-            f.apply(context, args);
-            inThrottle = true;
-            setTimeout(function() {inThrottle = false;}, interval);
-        }
-    };
 }
 function storeStyle(el, props)
 {
@@ -180,7 +205,6 @@ function animate(el, ms, offset)
 function intersect1D(nodeA, nodeB, scroll, axis, size)
 {
     var rectA = nodeA[$].r, rectB = nodeB[$][RECT];
-
     return stdMath.max(
         0.0,
         stdMath.min(
@@ -209,7 +233,6 @@ function intersect2D(nodeA, nodeB, scroll, axis, size)
 {
     var rectA = nodeA[$].r, rectB = nodeB[$][RECT],
         overlapX = 0, overlapY = 0;
-
     overlapX = stdMath.max(
         0,
         stdMath.min(
@@ -291,8 +314,8 @@ function layout1(el, line, parent, movedNode, placeholder, scroll, axis, size, a
             }
             el[$].line = line;
             el[$].prev[axis] = el[$][RECT][axis];
-            el[$][RECT][axis] = parent[$][RECT][axis] /*- parent[$][SCROLL][axis]*/ + parent[$][PADDING][axis] + runningEnd + el[$][MARGIN][axis] /*- scroll[axis]*/;
-            (el === movedNode ? placeholder : el)[STYLE][axis] = Str(el[$][RECT][axis] - parent[$][RECT][axis] /*+ parent[$][SCROLL][axis]*/ - (el === movedNode ? 0 : el[$][MARGIN][axis])) + 'px';
+            el[$][RECT][axis] = parent[$][RECT][axis] - parent[$][SCROLL][axis] + parent[$][PADDING][axis] + runningEnd + el[$][MARGIN][axis];
+            (el === movedNode ? placeholder : el)[STYLE][axis] = Str(el[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - (el === movedNode ? 0 : el[$][MARGIN][axis])) + 'px';
             runningEnd += end;
         }
         el = el[NEXT];
@@ -337,22 +360,20 @@ function layout2(el, lines, parent, movedNode, placeholder, scroll, axis, size, 
             {
                 // TODO: support more vertical align options
                 case 'bottom':
-                    el[$][RECT][axis] = parent[$][RECT][axis] /*- parent[$][SCROLL][axis]*/ + lines[line + 1] - el[$][RECT][size] - el[$][MARGIN][axis_opposite] /*- scroll[axis]*/;
+                    el[$][RECT][axis] = parent[$][RECT][axis] - parent[$][SCROLL][axis] + lines[line + 1] - el[$][RECT][size] - el[$][MARGIN][axis_opposite];
                     break;
                 case 'top':
                 default:
-                    el[$][RECT][axis] = parent[$][RECT][axis] /*- parent[$][SCROLL][axis]*/ + lineTop + el[$][MARGIN][axis] /*- scroll[axis]*/;
+                    el[$][RECT][axis] = parent[$][RECT][axis] - parent[$][SCROLL][axis] + lineTop + el[$][MARGIN][axis];
                     break;
             }
-            (el === movedNode ? placeholder : el)[STYLE][axis] = Str(el[$][RECT][axis] - (el === movedNode ? 0 : el[$][MARGIN][axis]) - parent[$][RECT][axis] /*+ parent[$][SCROLL][axis]*/) + 'px';
+            (el === movedNode ? placeholder : el)[STYLE][axis] = Str(el[$][RECT][axis] - (el === movedNode ? 0 : el[$][MARGIN][axis]) - parent[$][RECT][axis] + parent[$][SCROLL][axis]) + 'px';
         }
         el = el[NEXT];
     }
 }
 function computeScroll(parent, scrollParent)
 {
-    //parent[$][SCROLL][TOP] = parent[STOP];
-    //parent[$][SCROLL][LEFT] = parent[SLEFT];
     return scrollParent ? {
         top: (scrollParent[STOP] - scrollParent[$][SCROLL].top0) || 0,
         left: (scrollParent[SLEFT] - scrollParent[$][SCROLL].left0) || 0
@@ -361,39 +382,14 @@ function computeScroll(parent, scrollParent)
         left: 0
     };
 }
-function concat(a)
-{
-    for (var i = 1, args = arguments; i < args.length; i++)
-        a.push.apply(a, args[i]);
-    return a;
-}
-function canScroll(el, axis)
-{
-    if (0 === el[axis])
-    {
-        el[axis] = 1;
-        if (1 === el[axis])
-        {
-            el[axis] = 0;
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
-    else
-    {
-        return true;
-    }
-}
 
 function setup(self, TYPE)
 {
     var attached = false, canHandle = false, isDraggingStarted = false, isTouch = false,
-        placeholder, dragged, handler, closest,
+        placeholder, dragged, handler, closest, dragTimer = null,
         first, last, items, lines, scrollEl, scrollParent, parent,
-        X0, Y0, lastX, lastY, lastDeltaX, lastDeltaY, scrolling = null, scroll, dir, overlap, moved,
+        X0, Y0, lastX, lastY, lastDeltaX, lastDeltaY, dirX, dirY, curX, curY,
+        scrolling = null, scroll, dir, overlap, moved,
         delay = 60, fps = 60, dt = 1000 / fps, move, intersect, hasSymmetricItems = false,
         size = HORIZONTAL === TYPE ? WIDTH : HEIGHT,
         axis = HORIZONTAL === TYPE ? LEFT : TOP,
@@ -452,7 +448,7 @@ function setup(self, TYPE)
                 left0: parent[SLEFT] || 0
             },
             $: computedStyle(parent),
-            style: storeStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom', 'max-width', 'max-height'/*, 'overflow'*/])
+            style: storeStyle(parent, ['width', 'height', 'max-width', 'max-height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom'])
         };
         parent[$][PADDING] = {
             left: int(parent[$].$.paddingLeft) || 0,
@@ -598,6 +594,7 @@ function setup(self, TYPE)
             addEvent(DOC, 'mousemove', dragMove, false);
             addEvent(DOC, 'mouseup', dragEnd, false);
         }
+        dragTimer = setInterval(actualDragMove, delay);
     };
 
     var restore = function() {
@@ -619,13 +616,18 @@ function setup(self, TYPE)
                 removeEvent(DOC, 'mousemove', dragMove, false);
                 removeEvent(DOC, 'mouseup', dragEnd, false);
             }
+            if (dragTimer)
+            {
+                clearInterval(dragTimer);
+                dragTimer = null;
+            }
             if (placeholder && placeholder.parentNode)
             {
                 placeholder.parentNode.removeChild(placeholder);
                 placeholder[$] = null;
             }
             removeClass(parent, self.options.activeArea || 'dnd-sortable-area');
-            restoreStyle(parent, ['width', 'height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom', 'max-width', 'max-height'/*, 'overflow'*/], parent[$].style);
+            restoreStyle(parent, ['width', 'height', 'max-width', 'max-height', 'box-sizing', 'padding-left', 'padding-top', 'padding-right', 'padding-bottom'], parent[$].style);
             if (closest) removeClass(closest, self.options.closestItem || 'dnd-sortable-closest');
             removeClass(dragged, self.options.activeItem || 'dnd-sortable-dragged');
             items.forEach(function(el) {
@@ -694,8 +696,8 @@ function setup(self, TYPE)
             moveTo(movedNode, refNode, dir);
             movedNode[$].prev[axis] = movedNode[$][RECT][axis];
             margin = movedNode[$][MARGIN][axis] - refNode[$][MARGIN][axis];
-            movedNode[$][RECT][axis] = refNode[$][RECT][axis] + margin /*- scroll[axis]*/;
-            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] /*+ scroll[axis]*/) + 'px';
+            movedNode[$][RECT][axis] = refNode[$][RECT][axis] + margin;
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis]) + 'px';
             delta = movedNode[$][RECT][size] - refNode[$][RECT][size];
             margin += movedNode[$][MARGIN][axis_opposite] - refNode[$][MARGIN][axis_opposite];
             while ((next = refNode[NEXT]) && (next !== limitNode))
@@ -704,17 +706,17 @@ function setup(self, TYPE)
                 refNode[$].index++;
                 refNode[$].prev[axis] = refNode[$][RECT][axis];
                 margin += refNode[$][MARGIN][axis] - next[$][MARGIN][axis];
-                refNode[$][RECT][axis] = next[$][RECT][axis] + delta + margin /*- scroll[axis]*/;
+                refNode[$][RECT][axis] = next[$][RECT][axis] + delta + margin;
                 margin += refNode[$][MARGIN][axis_opposite] - next[$][MARGIN][axis_opposite];
-                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis] /*+ scroll[axis]*/) + 'px';
+                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis]) + 'px';
                 delta += refNode[$][RECT][size] - next[$][RECT][size];
                 refNode = next;
             }
             if (refNode[$].animation) refNode[$].animation.stop();
             refNode[$].index++;
             refNode[$].prev[axis] = refNode[$][RECT][axis];
-            refNode[$][RECT][axis] = movedNode[$].prev[axis] + delta + margin - movedNode[$][MARGIN][axis] + refNode[$][MARGIN][axis] /*- scroll[axis]*/;
-            refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis] /*+ scroll[axis]*/) + 'px';
+            refNode[$][RECT][axis] = movedNode[$].prev[axis] + delta + margin - movedNode[$][MARGIN][axis] + refNode[$][MARGIN][axis];
+            refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis]) + 'px';
         }
         else if (0 < dir)
         {
@@ -731,16 +733,16 @@ function setup(self, TYPE)
                 refNode[$].index--;
                 refNode[$].prev[axis] = refNode[$][RECT][axis];
                 margin += refNode[$][MARGIN][axis] - next[$][MARGIN][axis];
-                refNode[$][RECT][axis] = next[$].prev[axis] + delta + margin /*- scroll[axis]*/;
-                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis] /*+ scroll[axis]*/) + 'px';
+                refNode[$][RECT][axis] = next[$].prev[axis] + delta + margin;
+                refNode[STYLE][axis] = Str(refNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] - refNode[$][MARGIN][axis]) + 'px';
                 delta += -(next[$][RECT][size] - refNode[$][RECT][size]);
                 margin += refNode[$][MARGIN][axis_opposite] - next[$][MARGIN][axis_opposite];
                 next = refNode;
                 refNode = refNode[NEXT];
             }
             while ((refNode) && (refNode !== placeholder));
-            movedNode[$][RECT][axis] = next[$].prev[axis] + delta + margin - next[$][MARGIN][axis] + movedNode[$][MARGIN][axis] /*- scroll[axis]*/;
-            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis] /*+ scroll[axis]*/) + 'px';
+            movedNode[$][RECT][axis] = next[$].prev[axis] + delta + margin - next[$][MARGIN][axis] + movedNode[$][MARGIN][axis];
+            placeholder[STYLE][axis] = Str(movedNode[$][RECT][axis] - parent[$][RECT][axis] + parent[$][SCROLL][axis]) + 'px';
         }
         offset = {};
         offset[axis] = target[$][RECT][axis] - target[$].prev[axis];
@@ -762,8 +764,8 @@ function setup(self, TYPE)
                 movedNode[$].line = refNode[$].line;
                 movedNode[$][RECT][TOP] = refNode[$][RECT][TOP];
                 movedNode[$][RECT][LEFT] = refNode[$][RECT][LEFT];
-                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/) + 'px';
-                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP]) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT]) + 'px';
                 while ((next = refNode[NEXT]) && (next !== limitNode))
                 {
                     if (refNode[$].animation) refNode[$].animation.stop();
@@ -774,8 +776,8 @@ function setup(self, TYPE)
                     refNode[$].line = next[$].line;
                     refNode[$][RECT][TOP] = next[$][RECT][TOP];
                     refNode[$][RECT][LEFT] = next[$][RECT][LEFT];
-                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/ - refNode[$][MARGIN][TOP]) + 'px';
-                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/ - refNode[$][MARGIN][LEFT]) + 'px';
+                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - refNode[$][MARGIN][TOP]) + 'px';
+                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
                     refNode = next;
                 }
                 if (refNode[$].animation) refNode[$].animation.stop();
@@ -786,7 +788,7 @@ function setup(self, TYPE)
                 refNode[$].line = movedNode[$].prev.line;
                 refNode[$][RECT][TOP] = movedNode[$].prev[TOP];
                 refNode[$][RECT][LEFT] = movedNode[$].prev[LEFT];
-                refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/ - refNode[$][MARGIN][TOP]) + 'px';
+                refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - refNode[$][MARGIN][TOP]) + 'px';
                 refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
             }
             else if (0 < dir)
@@ -808,8 +810,8 @@ function setup(self, TYPE)
                     refNode[$].line = next[$].prev.line;
                     refNode[$][RECT][TOP] = next[$].prev[TOP];
                     refNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/ - refNode[$][MARGIN][TOP]) + 'px';
-                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/ - refNode[$][MARGIN][LEFT]) + 'px';
+                    refNode[STYLE][TOP] = Str(refNode[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - refNode[$][MARGIN][TOP]) + 'px';
+                    refNode[STYLE][LEFT] = Str(refNode[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - refNode[$][MARGIN][LEFT]) + 'px';
                     next = refNode;
                     refNode = refNode[NEXT];
                 }
@@ -817,8 +819,8 @@ function setup(self, TYPE)
                 movedNode[$].line = next[$].prev.line;
                 movedNode[$][RECT][TOP] = next[$].prev[TOP];
                 movedNode[$][RECT][LEFT] = next[$].prev[LEFT];
-                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parent[$][RECT][TOP] /*+ parent[$][SCROLL][TOP]*/) + 'px';
-                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parent[$][RECT][LEFT] /*+ parent[$][SCROLL][LEFT]*/) + 'px';
+                placeholder[STYLE][TOP] = Str(movedNode[$][RECT][TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP]) + 'px';
+                placeholder[STYLE][LEFT] = Str(movedNode[$][RECT][LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT]) + 'px';
             }
             animate(target, ms, {
                 top: target[$][RECT][TOP] - target[$].prev[TOP],
@@ -916,12 +918,14 @@ function setup(self, TYPE)
 
         prepare();
 
-        lastX = isTouch ? e.touches[0].clientX : e.clientX;
-        lastY = isTouch ? e.touches[0].clientY : e.clientY;
-        lastDeltaX = 0;
-        lastDeltaY = 0;
+        curX = lastX = isTouch ? e.touches[0].clientX : e.clientX;
+        curY = lastY = isTouch ? e.touches[0].clientY : e.clientY;
         X0 = lastX;
         Y0 = lastY;
+        lastDeltaX = 0;
+        lastDeltaY = 0;
+        dirX = 0;
+        dirY = 0;
 
         parent.insertBefore(placeholder, dragged);
         placeholder[STYLE][WIDTH] = Str(dragged[$][RECT][WIDTH]) + 'px';
@@ -934,9 +938,14 @@ function setup(self, TYPE)
     };
 
     var dragMove = throttle(function(e) {
+        curX = isTouch ? e.touches[0].clientX : e.clientX;
+        curY = isTouch ? e.touches[0].clientY : e.clientY;
+    }, delay);
+
+    var actualDragMove = function() {
         var hovered, p = 0.0, Y, X, deltaX, deltaY, delta, centerX, centerY,
             c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z,
-            d1, d2, d3, d4, sx, sy, tX = 0, tY = 0;
+            d = 25, d1, d2, d3, d4, sx, sy, tX = 0, tY = 0;
 
         if (VERTICAL === TYPE)
         {
@@ -944,27 +953,26 @@ function setup(self, TYPE)
             zs = HEIGHT;
         }
 
-        X = e.touches && e.touches.length ? e.touches[0].clientX : e.clientX;
-        Y = e.touches && e.touches.length ? e.touches[0].clientY : e.clientY;
-
+        X = curX;
+        Y = curY;
         deltaX = X - lastX;
         deltaY = Y - lastY;
         lastDeltaX = 0 === lastDeltaX ? deltaX : lastDeltaX;
         lastDeltaY = 0 === lastDeltaY ? deltaY : lastDeltaY;
+        dirX = 0 !== deltaX ? sign(deltaX) : (0 !== lastDeltaX ? sign(lastDeltaX) : dirX);
+        dirY = 0 !== deltaY ? sign(deltaY) : (0 !== lastDeltaY ? sign(lastDeltaY) : dirY);
         lastX = X;
         lastY = Y;
 
         scroll = computeScroll(parent, scrollParent);
         if (HORIZONTAL !== TYPE)
         {
-            // scroll needed here !!
-            dragged[$].r[TOP] = lastY - Y0 + dragged[$][RECT][TOP] - scroll[TOP];
+            dragged[$].r[TOP] = lastY - Y0 + dragged[$][RECT][TOP];
             dragged[STYLE][TOP] = Str(dragged[$].r[TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - dragged[$][MARGIN][TOP] + scroll[TOP]) + 'px';
         }
         if (VERTICAL !== TYPE)
         {
-            // scroll needed here !!
-            dragged[$].r[LEFT] = lastX - X0 + dragged[$][RECT][LEFT] - scroll[LEFT];
+            dragged[$].r[LEFT] = lastX - X0 + dragged[$][RECT][LEFT];
             dragged[STYLE][LEFT] = Str(dragged[$].r[LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - dragged[$][MARGIN][LEFT] + scroll[LEFT]) + 'px';
         }
 
@@ -995,27 +1003,27 @@ function setup(self, TYPE)
             }
             if (
                 (VERTICAL !== TYPE)
-                && ((0 < deltaX
+                && ((0 < dirX
                 && scrollParent[SLEFT] + scrollParent[$][RECT][WIDTH] < scrollParent[$][SCROLL][WIDTH]
-                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] + deltaX >= d1)
-                || (0 > deltaX
+                && dragged[$].r[LEFT] + dragged[$].r[WIDTH] >= d1)
+                || (0 > dirX
                 && 0 < scrollParent[SLEFT]
-                && dragged[$].r[LEFT] + deltaX <= d2))
+                && dragged[$].r[LEFT] <= d2))
             )
             {
-                tX = stdMath.round(sign(deltaX) * sx * dragged[$].r[WIDTH]);
+                tX = stdMath.round(dirX * sx * dragged[$].r[WIDTH]);
             }
             if (
                 (HORIZONTAL !== TYPE)
-                && ((0 < deltaY
+                && ((0 < dirY
                 && scrollParent[STOP] + scrollParent[$][RECT][HEIGHT] < scrollParent[$][SCROLL][HEIGHT]
-                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] + deltaY >= d3)
-                || (0 > deltaY
+                && dragged[$].r[TOP] + dragged[$].r[HEIGHT] >= d3)
+                || (0 > dirY
                 && 0 < scrollParent[STOP]
-                && dragged[$].r[TOP] + deltaY <= d4))
+                && dragged[$].r[TOP] <= d4))
             )
             {
-                tY = stdMath.round(sign(deltaY) * sy * dragged[$].r[HEIGHT]);
+                tY = stdMath.round(dirY * sy * dragged[$].r[HEIGHT]);
             }
             if (tX || tY) scrolling = (function(tX, tY, tS, dt) {
                     var sT = scrollParent[STOP] || 0, sL = scrollParent[SLEFT] || 0,
@@ -1024,8 +1032,8 @@ function setup(self, TYPE)
                         duration += dt;
                         sT += vY * dt;
                         sL += vX * dt;
-                        scrollParent[STOP] = stdMath.max(0, sT);
-                        scrollParent[SLEFT] = stdMath.max(0, sL);
+                        scrollParent[STOP] = stdMath.min(stdMath.max(0, sT), scrollParent[$][SCROLL][HEIGHT] - scrollParent[$][RECT][HEIGHT]);
+                        scrollParent[SLEFT] = stdMath.min(stdMath.max(0, sL), scrollParent[$][SCROLL][WIDTH] - scrollParent[$][RECT][WIDTH]);
                         if (duration >= tS)
                         {
                             clearInterval(scrolling);
@@ -1044,8 +1052,8 @@ function setup(self, TYPE)
 
         hovered = concat(
                 elementsAt(DOC, X, Y), // current mouse pos
-                VERTICAL === TYPE ? [] : elementsAt(DOC, dragged[$].r[LEFT] + 2, centerY), // left side
-                VERTICAL === TYPE ? [] : elementsAt(DOC, dragged[$].r[LEFT] + dragged[$].r[WIDTH] - 2, centerY), // right side
+                VERTICAL === TYPE ? [] : elementsAt(DOC, dragged[$].r[LEFT]  + 2, centerY), // left side
+                VERTICAL === TYPE ? [] : elementsAt(DOC, dragged[$].r[LEFT]  + dragged[$].r[WIDTH] - 2, centerY), // right side
                 HORIZONTAL === TYPE ? [] : elementsAt(DOC, centerX, dragged[$].r[TOP] + 2), // top side
                 HORIZONTAL === TYPE ? [] : elementsAt(DOC, centerX, dragged[$].r[TOP] + dragged[$].r[HEIGHT] - 2) // bottom side
                 ).reduce(function(candidate, el) {
@@ -1082,7 +1090,7 @@ function setup(self, TYPE)
             )
                 hovered = last;
 
-            delta = hovered ? hovered[$].index - dragged[$].index : (stdMath.abs(deltaY) >= stdMath.abs(deltaX) ? deltaY : deltaX);
+            delta = hovered ? hovered[$].index - dragged[$].index : (stdMath.abs(dirY) >= stdMath.abs(dirX) ? dirY : dirX);
         }
         else
         {
@@ -1100,7 +1108,7 @@ function setup(self, TYPE)
             )
                 hovered = last;
 
-            delta = HORIZONTAL === TYPE ? deltaX : deltaY;
+            delta = HORIZONTAL === TYPE ? dirX : dirY;
         }
 
         if (
@@ -1155,7 +1163,7 @@ function setup(self, TYPE)
                 overlap = 0; closest = null;
             }
         }
-    }, delay);
+    };
 
     var dragEnd = function(e) {
         var el = dragged;
