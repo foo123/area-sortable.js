@@ -30,6 +30,7 @@ var VERSION = '1.2.2', $ = '$areaSortable',
     UNRESTRICTED = VERTICAL + HORIZONTAL,
     stdMath = Math, Str = String, int = parseInt,
     hasProp = Object.prototype.hasOwnProperty,
+    toString = Object.prototype.toString,
     trim_re = /^\s+|\s+$/g, mouse_evt = /mousedown|pointerdown/,
     trim = Str.prototype.trim
         ? function(s) {return s.trim();}
@@ -47,6 +48,14 @@ if (
 function sign(x, signOfZero)
 {
     return 0 > x ? -1 : (0 < x ? 1 : (signOfZero || 0));
+}
+function is_callable(x)
+{
+    return 'function' === typeof x;
+}
+function is_string(x)
+{
+    return '[object String]' === toString.call(x);
 }
 function concat(a)
 {
@@ -139,7 +148,7 @@ function canScroll(el, scrollAxis)
 }
 function computedStyle(el)
 {
-    return ('function' === typeof(window.getComputedStyle) ? window.getComputedStyle(el, null) : el.currentStyle) || {};
+    return (is_callable(window.getComputedStyle) ? window.getComputedStyle(el, null) : el.currentStyle) || {};
 }
 function elementsAt(document, x, y)
 {
@@ -885,9 +894,9 @@ function setup(self, TYPE)
         parent = dragged.parentNode;
         if (
             !parent
-            || (('string' === typeof(self.options.container))
+            || (is_string(self.options.container)
             && (parent.id !== self.options.container))
-            || (('string' !== typeof(self.options.container))
+            || (!is_string(self.options.container)
             && (parent !== self.options.container))
         )
         {
@@ -895,10 +904,10 @@ function setup(self, TYPE)
             return;
         }
 
-        if ('function' === typeof self.options.onStart)
+        if (is_callable(self.options.onStart))
             self.options.onStart(dragged);
 
-        if ('function' === typeof self.options.itemFilter)
+        if (is_callable(self.options.itemFilter))
         {
             dragged = self.options.itemFilter(dragged);
             if (!dragged)
@@ -945,7 +954,8 @@ function setup(self, TYPE)
     var actualDragMove = function() {
         var hovered, p = 0.0, Y, X, deltaX, deltaY, delta, centerX, centerY,
             c = TOP, s = HEIGHT, zc = LEFT, zs = WIDTH, z,
-            d = 25, d1, d2, d3, d4, sx, sy, tX = 0, tY = 0;
+            d = 25, d1, d2, d3, d4, sx, sy, tX = 0, tY = 0,
+            changedDirX = false, changedDirY = false;
 
         if (VERTICAL === TYPE)
         {
@@ -969,14 +979,16 @@ function setup(self, TYPE)
         {
             dragged[$].r[TOP] = lastY - Y0 + dragged[$][RECT][TOP];
             dragged[STYLE][TOP] = Str(dragged[$].r[TOP] - parent[$][RECT][TOP] + parent[$][SCROLL][TOP] - dragged[$][MARGIN][TOP] + scroll[TOP]) + 'px';
+            changedDirY = 0 > deltaY*lastDeltaY;
         }
         if (VERTICAL !== TYPE)
         {
             dragged[$].r[LEFT] = lastX - X0 + dragged[$][RECT][LEFT];
             dragged[STYLE][LEFT] = Str(dragged[$].r[LEFT] - parent[$][RECT][LEFT] + parent[$][SCROLL][LEFT] - dragged[$][MARGIN][LEFT] + scroll[LEFT]) + 'px';
+            changedDirX = 0 > deltaX*lastDeltaX;
         }
 
-        if (self.options.autoscroll && scrollParent && (!scrolling || 0 > deltaX*lastDeltaX || 0 > deltaY*lastDeltaY))
+        if (self.options.autoscroll && scrollParent && (!scrolling || changedDirX || changedDirY))
         {
             if (scrolling)
             {
@@ -989,8 +1001,8 @@ function setup(self, TYPE)
                 d2 = 0;
                 d3 = scrollParent[$][RECT][HEIGHT];
                 d4 = 0;
-                sx = 2;
-                sy = 2;
+                sx = 1.5;
+                sy = 1.5;
             }
             else
             {
@@ -998,8 +1010,8 @@ function setup(self, TYPE)
                 d2 = scrollParent[$][RECT][LEFT];
                 d3 = scrollParent[$][RECT][BOTTOM];
                 d4 = scrollParent[$][RECT][TOP];
-                sx = 1.5;
-                sy = 1.5;
+                sx = 1.2;
+                sy = 1.2;
             }
             if (
                 (VERTICAL !== TYPE)
@@ -1034,7 +1046,7 @@ function setup(self, TYPE)
                         sL += vX * dt;
                         scrollParent[STOP] = stdMath.min(stdMath.max(0, sT), scrollParent[$][SCROLL][HEIGHT] - scrollParent[$][RECT][HEIGHT]);
                         scrollParent[SLEFT] = stdMath.min(stdMath.max(0, sL), scrollParent[$][SCROLL][WIDTH] - scrollParent[$][RECT][WIDTH]);
-                        if (duration >= tS)
+                        if (scrolling && (duration >= tS))
                         {
                             clearInterval(scrolling);
                             scrolling = null;
@@ -1169,7 +1181,7 @@ function setup(self, TYPE)
         var el = dragged;
         restore();
         clear();
-        if ('function' === typeof self.options.onEnd)
+        if (is_callable(self.options.onEnd))
             self.options.onEnd(el);
     };
 
@@ -1194,9 +1206,9 @@ function setup(self, TYPE)
         canHandle = false;
         if (attached)
         {
-            attached = false;
             removeEvent(document, 'touchstart', dragStart, {capture:true, passive:false});
             removeEvent(document, 'mousedown', dragStart, {capture:true, passive:false});
+            attached = false;
         }
         restore();
         clear();
